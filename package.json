@@ -1,0 +1,26 @@
+{
+  "name": "fluxpad-cli",
+  "version": "0.1.0",
+  "description": "FluxPad companion CLI: keystore generation, EIP-712 signing, and broadcasting for FluxVault.",
+  "type": "module",
+  "bin": {
+    "fluxpad": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "ethers": "^6.13.4",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/prompts": "^2.4.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
