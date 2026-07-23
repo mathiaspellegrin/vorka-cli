@@ -11,6 +11,8 @@ import { promises as fs } from "node:fs";
 export interface RegistryAction {
   id: string;
   description: string;
+  /** Key into chain.ts's CHAINS — which chain `target` actually lives on. */
+  chain: string;
   target: string;
   abi: string[];
   function: string;

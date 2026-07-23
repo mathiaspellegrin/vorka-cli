@@ -2,6 +2,7 @@
   {
     "id": "example-erc20-approve",
     "description": "Example entry — replace target/abi with a real, audited contract before use. Approves an ERC20 spender for an exact amount.",
+    "chain": "conflux-mainnet",
     "target": "0x000000000000000000000000000000000000dEaD",
     "abi": ["function approve(address spender, uint256 amount) returns (bool)"],
     "function": "approve"

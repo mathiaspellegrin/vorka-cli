@@ -5,14 +5,14 @@ import prompts from "prompts";
 import path from "node:path";
 import { backupKeystores, generateKeystores, unlockKeystores } from "./keystore.js";
 import {
-  CONFLUX_MAINNET_CHAIN_ID,
-  CONFLUX_MAINNET_RPC,
+  CHAINS,
   createVault,
   getProvider,
   getVaultState,
   submitExecute,
   submitModifyIdentity,
   submitWithdraw,
+  type ChainConfig,
 } from "./chain.js";
 import { signExecute, signModifyIdentity, signWithdraw } from "./sign.js";
 import { encodeActionCall, findAction, loadRegistry } from "./registry.js";
@@ -23,8 +23,16 @@ program.name("vorka").description("Vorka companion CLI").version("0.1.0");
 
 program
   .option("--dir <path>", "keystore directory (the mounted USB drive)", process.cwd())
-  .option("--rpc <url>", "Conflux RPC endpoint", CONFLUX_MAINNET_RPC)
-  .option("--chain-id <id>", "chain id for EIP-712 domain", String(CONFLUX_MAINNET_CHAIN_ID));
+  .option("--chain <name>", `chain to target (one of: ${Object.keys(CHAINS).join(", ")})`, "conflux-mainnet");
+
+function activeChain(): ChainConfig {
+  const name = program.opts().chain as string;
+  const chain = CHAINS[name];
+  if (!chain) {
+    throw new Error(`Unknown chain "${name}". Supported: ${Object.keys(CHAINS).join(", ")}`);
+  }
+  return chain;
+}
 
 async function askPassword(message = "Password"): Promise<string> {
   const { password } = await prompts({ type: "password", name: "password", message });
@@ -37,7 +45,7 @@ async function requireBroadcaster(rpcUrl: string): Promise<Wallet> {
   if (!key) {
     throw new Error(
       "Set VORKA_BROADCASTER_KEY to a funded gas-paying account's private key. " +
-        "This is separate from authAddress/fallbackAddress — it only pays Conflux gas, never holds vault assets.",
+        "This is separate from authAddress/fallbackAddress — it only pays gas on the active chain, never holds vault assets.",
     );
   }
   return new Wallet(key, getProvider(rpcUrl));
@@ -81,7 +89,7 @@ program
     const opts = program.opts();
     const password = await askPassword();
     const { auth, fallback } = await unlockKeystores(opts.dir, password);
-    const broadcaster = await requireBroadcaster(opts.rpc);
+    const broadcaster = await requireBroadcaster(activeChain().rpc);
 
     const vaultAddress = await createVault(factoryAddress, fallback.address, auth.address, broadcaster);
     console.log(`Vault deployed: ${vaultAddress}`);
@@ -92,9 +100,10 @@ program
   .description("Sign and broadcast a withdraw. token: address(0) for native ETH/CFX, or an ERC20 address")
   .action(async (vaultAddress: string, token: string, amount: string) => {
     const opts = program.opts();
-    const provider = getProvider(opts.rpc);
+    const chain = activeChain();
+    const provider = getProvider(chain.rpc);
     const state = await getVaultState(provider, vaultAddress);
-    const amountWei = await parseTokenAmount(opts.rpc, token, amount);
+    const amountWei = await parseTokenAmount(chain.rpc, token, amount);
 
     console.log(`This withdraws ${amount} (token ${token}) to owner: ${state.owner}`);
     const { confirmed } = await prompts({ type: "confirm", name: "confirmed", message: "Sign and broadcast?" });
@@ -104,13 +113,13 @@ program
     const { auth } = await unlockKeystores(opts.dir, password);
     const signature = await signWithdraw(
       auth,
-      { chainId: Number(opts.chainId), vaultAddress },
+      { chainId: chain.chainId, vaultAddress },
       token,
       amountWei,
       state.nonce,
     );
 
-    const broadcaster = await requireBroadcaster(opts.rpc);
+    const broadcaster = await requireBroadcaster(chain.rpc);
     const txHash = await submitWithdraw(vaultAddress, token, amountWei, signature, broadcaster);
     console.log(`Broadcast: ${txHash}`);
   });
@@ -120,8 +129,10 @@ program
   .description("List the curated actions execute() can be used against")
   .option("--registry <path>", "path to the actions registry", path.join(process.cwd(), "vorka-actions.json"))
   .action(async (cmdOpts) => {
+    activeChain(); // validates --chain, throws on an unrecognized name
+    const chainName = program.opts().chain as string;
     const actions = await loadRegistry(cmdOpts.registry);
-    for (const action of actions) {
+    for (const action of actions.filter((a) => a.chain === chainName)) {
       console.log(`${action.id}: ${action.description} (${action.target})`);
     }
   });
@@ -133,9 +144,16 @@ program
   .option("--value <ether>", "native value to send with the call", "0")
   .action(async (vaultAddress: string, actionId: string, argsJson: string, cmdOpts) => {
     const opts = program.opts();
+    const chain = activeChain();
     const actions = await loadRegistry(cmdOpts.registry);
     const action = findAction(actions, actionId);
     if (!action) throw new Error(`Unknown action "${actionId}". Run list-actions to see what's available.`);
+    if (action.chain !== opts.chain) {
+      throw new Error(
+        `Action "${actionId}" is registered for chain "${action.chain}", not "${opts.chain}". ` +
+          "Pass --chain to match, or double-check the registry entry.",
+      );
+    }
 
     const args = JSON.parse(argsJson) as unknown[];
     const data = encodeActionCall(action, args);
@@ -147,7 +165,7 @@ program
     const { confirmed } = await prompts({ type: "confirm", name: "confirmed", message: "Sign and broadcast this call?" });
     if (!confirmed) return;
 
-    const provider = getProvider(opts.rpc);
+    const provider = getProvider(chain.rpc);
     const state = await getVaultState(provider, vaultAddress);
     const value = parseEther(cmdOpts.value);
 
@@ -155,27 +173,21 @@ program
     const { auth } = await unlockKeystores(opts.dir, password);
     const signature = await signExecute(
       auth,
-      { chainId: Number(opts.chainId), vaultAddress },
+      { chainId: chain.chainId, vaultAddress },
       action.target,
       value,
       data,
       state.nonce,
     );
 
-    const broadcaster = await requireBroadcaster(opts.rpc);
+    const broadcaster = await requireBroadcaster(chain.rpc);
     const txHash = await submitExecute(vaultAddress, action.target, value, data, signature, broadcaster);
     console.log(`Broadcast: ${txHash}`);
   });
 
-async function rotate(
-  vaultAddress: string,
-  field: "auth" | "fallback",
-  newAddress: string,
-  dir: string,
-  rpcUrl: string,
-  chainId: number,
-) {
-  const provider = getProvider(rpcUrl);
+async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddress: string, dir: string) {
+  const chain = activeChain();
+  const provider = getProvider(chain.rpc);
   const state = await getVaultState(provider, vaultAddress);
 
   const password = await askPassword("Fallback key password");
@@ -187,14 +199,14 @@ async function rotate(
 
   const signature = await signModifyIdentity(
     fallback,
-    { chainId, vaultAddress },
+    { chainId: chain.chainId, vaultAddress },
     newOwner,
     newFallback,
     newAuth,
     state.nonce,
   );
 
-  const broadcaster = await requireBroadcaster(rpcUrl);
+  const broadcaster = await requireBroadcaster(chain.rpc);
   const txHash = await submitModifyIdentity(vaultAddress, newOwner, newFallback, newAuth, signature, broadcaster);
   console.log(`Broadcast: ${txHash}`);
 }
@@ -204,7 +216,7 @@ program
   .description("Replace the operational (USB) key — signed by the fallback key")
   .action(async (vaultAddress: string, newAuthAddress: string) => {
     const opts = program.opts();
-    await rotate(vaultAddress, "auth", newAuthAddress, opts.dir, opts.rpc, Number(opts.chainId));
+    await rotate(vaultAddress, "auth", newAuthAddress, opts.dir);
   });
 
 program
@@ -212,7 +224,7 @@ program
   .description("Replace the recovery root key — signed by the current fallback key")
   .action(async (vaultAddress: string, newFallbackAddress: string) => {
     const opts = program.opts();
-    await rotate(vaultAddress, "fallback", newFallbackAddress, opts.dir, opts.rpc, Number(opts.chainId));
+    await rotate(vaultAddress, "fallback", newFallbackAddress, opts.dir);
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

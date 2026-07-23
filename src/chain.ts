@@ -1,9 +1,21 @@
 import { Contract, JsonRpcProvider, type Wallet, type HDNodeWallet } from "ethers";
 
-export const CONFLUX_MAINNET_RPC = "https://evm.confluxrpc.com";
-export const CONFLUX_TESTNET_RPC = "https://evmtestnet.confluxrpc.com";
-export const CONFLUX_MAINNET_CHAIN_ID = 1030;
-export const CONFLUX_TESTNET_CHAIN_ID = 71;
+export interface ChainConfig {
+  rpc: string;
+  chainId: number;
+}
+
+/**
+ * Named chains the CLI can target. Vorka launches on Conflux; each
+ * additional chain is expected to arrive through a direct partnership with
+ * a project on that chain, not generic multi-chain support — see
+ * docs/VORKA.md, "Multi-chain and partnerships". Adding one is just a new
+ * entry here.
+ */
+export const CHAINS: Record<string, ChainConfig> = {
+  "conflux-mainnet": { rpc: "https://evm.confluxrpc.com", chainId: 1030 },
+  "conflux-testnet": { rpc: "https://evmtestnet.confluxrpc.com", chainId: 71 },
+};
 
 /** Only the pieces of VorkaVault/VorkaVaultFactory the CLI actually touches. */
 const VORKA_VAULT_ABI = [
