@@ -20,6 +20,7 @@ const WITHDRAW_TYPES: Record<string, TypedDataField[]> = {
   Withdraw: [
     { name: "token", type: "address" },
     { name: "amount", type: "uint256" },
+    { name: "deadline", type: "uint256" },
     { name: "nonce", type: "uint256" },
   ],
 };
@@ -31,6 +32,7 @@ const EXECUTE_TYPES: Record<string, TypedDataField[]> = {
     { name: "target", type: "address" },
     { name: "value", type: "uint256" },
     { name: "dataHash", type: "bytes32" },
+    { name: "deadline", type: "uint256" },
     { name: "nonce", type: "uint256" },
   ],
 };
@@ -40,6 +42,7 @@ const MODIFY_IDENTITY_TYPES: Record<string, TypedDataField[]> = {
     { name: "newOwner", type: "address" },
     { name: "newFallback", type: "address" },
     { name: "newAuth", type: "address" },
+    { name: "deadline", type: "uint256" },
     { name: "nonce", type: "uint256" },
   ],
 };
@@ -53,19 +56,32 @@ export function domainFor({ chainId, vaultAddress }: VaultDomain): TypedDataDoma
   };
 }
 
-export function withdrawTypedData(domain: VaultDomain, token: string, amount: bigint, nonce: bigint) {
+export function withdrawTypedData(
+  domain: VaultDomain,
+  token: string,
+  amount: bigint,
+  deadline: bigint,
+  nonce: bigint,
+) {
   return {
     domain: domainFor(domain),
     types: WITHDRAW_TYPES,
-    value: { token, amount, nonce },
+    value: { token, amount, deadline, nonce },
   };
 }
 
-export function executeTypedData(domain: VaultDomain, target: string, value: bigint, data: string, nonce: bigint) {
+export function executeTypedData(
+  domain: VaultDomain,
+  target: string,
+  value: bigint,
+  data: string,
+  deadline: bigint,
+  nonce: bigint,
+) {
   return {
     domain: domainFor(domain),
     types: EXECUTE_TYPES,
-    value: { target, value, dataHash: keccak256(data), nonce },
+    value: { target, value, dataHash: keccak256(data), deadline, nonce },
   };
 }
 
@@ -74,11 +90,12 @@ export function modifyIdentityTypedData(
   newOwner: string,
   newFallback: string,
   newAuth: string,
+  deadline: bigint,
   nonce: bigint,
 ) {
   return {
     domain: domainFor(domain),
     types: MODIFY_IDENTITY_TYPES,
-    value: { newOwner, newFallback, newAuth, nonce },
+    value: { newOwner, newFallback, newAuth, deadline, nonce },
   };
 }

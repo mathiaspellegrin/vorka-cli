@@ -14,9 +14,10 @@ export async function signWithdraw(
   domainParams: VaultDomain,
   token: string,
   amount: bigint,
+  deadline: bigint,
   nonce: bigint,
 ): Promise<string> {
-  const { domain, types, value } = withdrawTypedData(domainParams, token, amount, nonce);
+  const { domain, types, value } = withdrawTypedData(domainParams, token, amount, deadline, nonce);
   return signer.signTypedData(domain, types, value);
 }
 
@@ -26,9 +27,10 @@ export async function signExecute(
   target: string,
   value: bigint,
   data: string,
+  deadline: bigint,
   nonce: bigint,
 ): Promise<string> {
-  const typed = executeTypedData(domainParams, target, value, data, nonce);
+  const typed = executeTypedData(domainParams, target, value, data, deadline, nonce);
   return signer.signTypedData(typed.domain, typed.types, typed.value);
 }
 
@@ -38,8 +40,9 @@ export async function signModifyIdentity(
   newOwner: string,
   newFallback: string,
   newAuth: string,
+  deadline: bigint,
   nonce: bigint,
 ): Promise<string> {
-  const typed = modifyIdentityTypedData(domainParams, newOwner, newFallback, newAuth, nonce);
+  const typed = modifyIdentityTypedData(domainParams, newOwner, newFallback, newAuth, deadline, nonce);
   return signer.signTypedData(typed.domain, typed.types, typed.value);
 }

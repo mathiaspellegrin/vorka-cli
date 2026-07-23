@@ -40,62 +40,89 @@ function rawDigest(structHash: string): string {
 
 describe("domain — matches Solidity's _hashTypedDataV4 exactly", () => {
   it("Withdraw", () => {
-    const WITHDRAW_TYPEHASH = keccak256(toUtf8Bytes("Withdraw(address token,uint256 amount,uint256 nonce)"));
+    const WITHDRAW_TYPEHASH = keccak256(
+      toUtf8Bytes("Withdraw(address token,uint256 amount,uint256 deadline,uint256 nonce)"),
+    );
     const token = "0x000000000000000000000000000000000000dead";
     const amount = 1_000_000_000_000_000_000n;
+    const deadline = 2_000_000_000n;
     const nonce = 0n;
 
     const structHash = keccak256(
       AbiCoder.defaultAbiCoder().encode(
-        ["bytes32", "address", "uint256", "uint256"],
-        [WITHDRAW_TYPEHASH, token, amount, nonce],
+        ["bytes32", "address", "uint256", "uint256", "uint256"],
+        [WITHDRAW_TYPEHASH, token, amount, deadline, nonce],
       ),
     );
     const expected = rawDigest(structHash);
 
-    const { domain, types, value } = withdrawTypedData({ chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS }, token, amount, nonce);
+    const { domain, types, value } = withdrawTypedData(
+      { chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS },
+      token,
+      amount,
+      deadline,
+      nonce,
+    );
     expect(TypedDataEncoder.hash(domain, types, value)).toBe(expected);
   });
 
   it("Execute", () => {
     const EXECUTE_TYPEHASH = keccak256(
-      toUtf8Bytes("Execute(address target,uint256 value,bytes32 dataHash,uint256 nonce)"),
+      toUtf8Bytes("Execute(address target,uint256 value,bytes32 dataHash,uint256 deadline,uint256 nonce)"),
     );
     const target = "0x000000000000000000000000000000000000aaaa";
     const value = 0n;
     const data = "0x1234";
+    const deadline = 2_000_000_000n;
     const nonce = 5n;
 
     const structHash = keccak256(
       AbiCoder.defaultAbiCoder().encode(
-        ["bytes32", "address", "uint256", "bytes32", "uint256"],
-        [EXECUTE_TYPEHASH, target, value, keccak256(data), nonce],
+        ["bytes32", "address", "uint256", "bytes32", "uint256", "uint256"],
+        [EXECUTE_TYPEHASH, target, value, keccak256(data), deadline, nonce],
       ),
     );
     const expected = rawDigest(structHash);
 
-    const typed = executeTypedData({ chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS }, target, value, data, nonce);
+    const typed = executeTypedData(
+      { chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS },
+      target,
+      value,
+      data,
+      deadline,
+      nonce,
+    );
     expect(TypedDataEncoder.hash(typed.domain, typed.types, typed.value)).toBe(expected);
   });
 
   it("ModifyIdentity", () => {
     const MODIFY_IDENTITY_TYPEHASH = keccak256(
-      toUtf8Bytes("ModifyIdentity(address newOwner,address newFallback,address newAuth,uint256 nonce)"),
+      toUtf8Bytes(
+        "ModifyIdentity(address newOwner,address newFallback,address newAuth,uint256 deadline,uint256 nonce)",
+      ),
     );
     const newOwner = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const newFallback = "0xcccccccccccccccccccccccccccccccccccccccc";
     const newAuth = "0xdddddddddddddddddddddddddddddddddddddddd";
+    const deadline = 2_000_000_000n;
     const nonce = 2n;
 
     const structHash = keccak256(
       AbiCoder.defaultAbiCoder().encode(
-        ["bytes32", "address", "address", "address", "uint256"],
-        [MODIFY_IDENTITY_TYPEHASH, newOwner, newFallback, newAuth, nonce],
+        ["bytes32", "address", "address", "address", "uint256", "uint256"],
+        [MODIFY_IDENTITY_TYPEHASH, newOwner, newFallback, newAuth, deadline, nonce],
       ),
     );
     const expected = rawDigest(structHash);
 
-    const typed = modifyIdentityTypedData({ chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS }, newOwner, newFallback, newAuth, nonce);
+    const typed = modifyIdentityTypedData(
+      { chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS },
+      newOwner,
+      newFallback,
+      newAuth,
+      deadline,
+      nonce,
+    );
     expect(TypedDataEncoder.hash(typed.domain, typed.types, typed.value)).toBe(expected);
   });
 });

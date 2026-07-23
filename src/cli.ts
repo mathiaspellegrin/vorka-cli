@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { Contract, Wallet, ZeroAddress, parseEther, parseUnits } from "ethers";
+import { Contract, Wallet, ZeroAddress, parseEther, parseUnits, type JsonRpcProvider } from "ethers";
 import prompts from "prompts";
 import path from "node:path";
 import {
@@ -13,8 +13,9 @@ import {
 import {
   CHAINS,
   createVault,
-  getProvider,
+  getValidatedProvider,
   getVaultState,
+  signingDeadline,
   submitExecute,
   submitModifyIdentity,
   submitWithdraw,
@@ -46,7 +47,7 @@ async function askPassword(message = "Password"): Promise<string> {
   return password;
 }
 
-async function requireBroadcaster(rpcUrl: string): Promise<Wallet> {
+async function requireBroadcaster(provider: JsonRpcProvider): Promise<Wallet> {
   const key = process.env.VORKA_BROADCASTER_KEY;
   if (!key) {
     throw new Error(
@@ -54,12 +55,12 @@ async function requireBroadcaster(rpcUrl: string): Promise<Wallet> {
         "This is separate from authAddress/fallbackAddress — it only pays gas on the active chain, never holds vault assets.",
     );
   }
-  return new Wallet(key, getProvider(rpcUrl));
+  return new Wallet(key, provider);
 }
 
-async function parseTokenAmount(rpcUrl: string, token: string, amountStr: string): Promise<bigint> {
+async function parseTokenAmount(provider: JsonRpcProvider, token: string, amountStr: string): Promise<bigint> {
   if (token === ZeroAddress) return parseEther(amountStr);
-  const erc20 = new Contract(token, ["function decimals() view returns (uint8)"], getProvider(rpcUrl));
+  const erc20 = new Contract(token, ["function decimals() view returns (uint8)"], provider);
   const decimals: number = await erc20.decimals();
   return parseUnits(amountStr, decimals);
 }
@@ -103,7 +104,8 @@ program
   .action(async (factoryAddress: string) => {
     const opts = program.opts();
     const { authAddress, fallbackAddress } = await readAddressManifest(opts.dir);
-    const broadcaster = await requireBroadcaster(activeChain().rpc);
+    const provider = await getValidatedProvider(activeChain());
+    const broadcaster = await requireBroadcaster(provider);
 
     const vaultAddress = await createVault(factoryAddress, fallbackAddress, authAddress, broadcaster);
     console.log(`Vault deployed: ${vaultAddress}`);
@@ -115,9 +117,9 @@ program
   .action(async (vaultAddress: string, token: string, amount: string) => {
     const opts = program.opts();
     const chain = activeChain();
-    const provider = getProvider(chain.rpc);
+    const provider = await getValidatedProvider(chain);
     const state = await getVaultState(provider, vaultAddress);
-    const amountWei = await parseTokenAmount(chain.rpc, token, amount);
+    const amountWei = await parseTokenAmount(provider, token, amount);
 
     console.log(`This withdraws ${amount} (token ${token}) to owner: ${state.owner}`);
     const { confirmed } = await prompts({ type: "confirm", name: "confirmed", message: "Sign and broadcast?" });
@@ -125,16 +127,18 @@ program
 
     const password = await askPassword();
     const auth = await unlockAuthKeystore(opts.dir, password);
+    const deadline = await signingDeadline(provider);
     const signature = await signWithdraw(
       auth,
       { chainId: chain.chainId, vaultAddress },
       token,
       amountWei,
+      deadline,
       state.operationalNonce,
     );
 
-    const broadcaster = await requireBroadcaster(chain.rpc);
-    const txHash = await submitWithdraw(vaultAddress, token, amountWei, signature, broadcaster);
+    const broadcaster = await requireBroadcaster(provider);
+    const txHash = await submitWithdraw(vaultAddress, token, amountWei, deadline, signature, broadcaster);
     console.log(`Broadcast: ${txHash}`);
   });
 
@@ -179,29 +183,31 @@ program
     const { confirmed } = await prompts({ type: "confirm", name: "confirmed", message: "Sign and broadcast this call?" });
     if (!confirmed) return;
 
-    const provider = getProvider(chain.rpc);
+    const provider = await getValidatedProvider(chain);
     const state = await getVaultState(provider, vaultAddress);
     const value = parseEther(cmdOpts.value);
 
     const password = await askPassword();
     const auth = await unlockAuthKeystore(opts.dir, password);
+    const deadline = await signingDeadline(provider);
     const signature = await signExecute(
       auth,
       { chainId: chain.chainId, vaultAddress },
       action.target,
       value,
       data,
+      deadline,
       state.operationalNonce,
     );
 
-    const broadcaster = await requireBroadcaster(chain.rpc);
-    const txHash = await submitExecute(vaultAddress, action.target, value, data, signature, broadcaster);
+    const broadcaster = await requireBroadcaster(provider);
+    const txHash = await submitExecute(vaultAddress, action.target, value, data, deadline, signature, broadcaster);
     console.log(`Broadcast: ${txHash}`);
   });
 
 async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddress: string, dir: string) {
   const chain = activeChain();
-  const provider = getProvider(chain.rpc);
+  const provider = await getValidatedProvider(chain);
   const state = await getVaultState(provider, vaultAddress);
 
   const password = await askPassword("Fallback key password");
@@ -210,6 +216,7 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
   const newOwner = ZeroAddress;
   const newFallback = field === "fallback" ? newAddress : ZeroAddress;
   const newAuth = field === "auth" ? newAddress : ZeroAddress;
+  const deadline = await signingDeadline(provider);
 
   const signature = await signModifyIdentity(
     fallback,
@@ -217,11 +224,20 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
     newOwner,
     newFallback,
     newAuth,
+    deadline,
     state.governanceNonce,
   );
 
-  const broadcaster = await requireBroadcaster(chain.rpc);
-  const txHash = await submitModifyIdentity(vaultAddress, newOwner, newFallback, newAuth, signature, broadcaster);
+  const broadcaster = await requireBroadcaster(provider);
+  const txHash = await submitModifyIdentity(
+    vaultAddress,
+    newOwner,
+    newFallback,
+    newAuth,
+    deadline,
+    signature,
+    broadcaster,
+  );
   console.log(`Broadcast: ${txHash}`);
 }
 

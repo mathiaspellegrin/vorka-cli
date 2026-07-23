@@ -2,7 +2,15 @@ import { Wallet, ZeroAddress, parseEther } from "ethers";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { CHAINS, createVault, getProvider, getVaultState, submitModifyIdentity, submitWithdraw } from "../src/chain.js";
+import {
+  CHAINS,
+  createVault,
+  getValidatedProvider,
+  getVaultState,
+  signingDeadline,
+  submitModifyIdentity,
+  submitWithdraw,
+} from "../src/chain.js";
 import { generateKeystores, readAddressManifest, unlockAuthKeystore, unlockFallbackKeystore } from "../src/keystore.js";
 import { signModifyIdentity, signWithdraw } from "../src/sign.js";
 
@@ -55,7 +63,7 @@ async function main() {
   if (!factoryAddress) throw new Error("Usage: tsx e2e-smoke.ts <factoryAddress>");
 
   const chain = CHAINS.local;
-  const provider = getProvider(chain.rpc);
+  const provider = await getValidatedProvider(chain);
   const broadcaster = new LocalNonceWallet(DEPLOYER_KEY, provider);
   const newAuth = new Wallet(NEW_AUTH_KEY, provider);
 
@@ -87,14 +95,16 @@ async function main() {
   console.log("\n--- withdraw (auth keystore only — fallback never touched) ---");
   const auth = await unlockAuthKeystore(dir, authPassword);
   const withdrawAmount = parseEther("0.4");
+  const withdrawDeadline = await signingDeadline(provider);
   const withdrawSig = await signWithdraw(
     auth,
     { chainId: chain.chainId, vaultAddress },
     ZeroAddress,
     withdrawAmount,
+    withdrawDeadline,
     initialState.operationalNonce,
   );
-  await submitWithdraw(vaultAddress, ZeroAddress, withdrawAmount, withdrawSig, broadcaster);
+  await submitWithdraw(vaultAddress, ZeroAddress, withdrawAmount, withdrawDeadline, withdrawSig, broadcaster);
   const balanceAfterWithdraw = await provider.getBalance(vaultAddress);
   assertEqual(balanceAfterWithdraw, parseEther("0.6"), "vault balance after withdrawing 0.4 ETH");
   const stateAfterWithdraw = await getVaultState(provider, vaultAddress);
@@ -105,15 +115,25 @@ async function main() {
   await provider.send("evm_increaseTime", [90000]);
   await provider.send("evm_mine", []);
   const fallback = await unlockFallbackKeystore(dir, fallbackPassword);
+  const rotateDeadline = await signingDeadline(provider);
   const rotateSig = await signModifyIdentity(
     fallback,
     { chainId: chain.chainId, vaultAddress },
     ZeroAddress,
     ZeroAddress,
     newAuth.address,
+    rotateDeadline,
     stateAfterWithdraw.governanceNonce,
   );
-  await submitModifyIdentity(vaultAddress, ZeroAddress, ZeroAddress, newAuth.address, rotateSig, broadcaster);
+  await submitModifyIdentity(
+    vaultAddress,
+    ZeroAddress,
+    ZeroAddress,
+    newAuth.address,
+    rotateDeadline,
+    rotateSig,
+    broadcaster,
+  );
   const stateAfterRotate = await getVaultState(provider, vaultAddress);
   assertEqual(stateAfterRotate.authAddress, newAuth.address, "authAddress rotated to the new key");
   assertEqual(stateAfterRotate.owner, initialState.owner, "owner unchanged by an auth-only rotation");

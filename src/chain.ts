@@ -1,4 +1,4 @@
-import { Contract, JsonRpcProvider, type Wallet, type HDNodeWallet } from "ethers";
+import { Contract, JsonRpcProvider, id, type Wallet, type HDNodeWallet } from "ethers";
 
 export interface ChainConfig {
   rpc: string;
@@ -20,6 +20,9 @@ export const CHAINS: Record<string, ChainConfig> = {
   local: { rpc: "http://127.0.0.1:8545", chainId: 31337 },
 };
 
+export const DEFAULT_SIGNATURE_VALIDITY_SECONDS = 30 * 60;
+const RETAIL_IMPLEMENTATION_ID = id("VorkaVault.retail.v1");
+
 /** Only the pieces of VorkaVault/VorkaVaultFactory the CLI actually touches. */
 const VORKA_VAULT_ABI = [
   "function owner() view returns (address)",
@@ -27,15 +30,18 @@ const VORKA_VAULT_ABI = [
   "function authAddress() view returns (address)",
   "function operationalNonce() view returns (uint256)",
   "function governanceNonce() view returns (uint256)",
-  "function withdraw(address token, uint256 amount, bytes signature)",
-  "function execute(address target, uint256 value, bytes data, bytes signature) returns (bytes)",
-  "function modifyIdentity(address newOwner, address newFallback, address newAuth, bytes signature)",
+  "function withdraw(address token, uint256 amount, uint256 deadline, bytes signature)",
+  "function execute(address target, uint256 value, bytes data, uint256 deadline, bytes signature) returns (bytes)",
+  "function modifyIdentity(address newOwner, address newFallback, address newAuth, uint256 deadline, bytes signature)",
 ];
 
 const VORKA_VAULT_FACTORY_ABI = [
   "function createVault(address fallbackAddr, address authAddr) returns (address)",
   "function vaultOf(address creator) view returns (address)",
+  "function implementation() view returns (address)",
 ];
+
+const IMPLEMENTATION_ABI = ["function implementationId() view returns (bytes32)"];
 
 type Signer = Wallet | HDNodeWallet;
 
@@ -51,6 +57,35 @@ export interface VaultState {
 
 export function getProvider(rpcUrl: string): JsonRpcProvider {
   return new JsonRpcProvider(rpcUrl);
+}
+
+export async function validateProvider(provider: JsonRpcProvider, expectedChainId: number): Promise<void> {
+  const network = await provider.getNetwork();
+  if (network.chainId !== BigInt(expectedChainId)) {
+    throw new Error(`RPC chain ID mismatch: expected ${expectedChainId}, received ${network.chainId}`);
+  }
+}
+
+export async function getValidatedProvider(chain: ChainConfig): Promise<JsonRpcProvider> {
+  const provider = getProvider(chain.rpc);
+  await validateProvider(provider, chain.chainId);
+  return provider;
+}
+
+export async function signingDeadline(
+  provider: JsonRpcProvider,
+  validitySeconds = DEFAULT_SIGNATURE_VALIDITY_SECONDS,
+): Promise<bigint> {
+  // Raw RPC call, not provider.getBlock("latest") — ethers' cached block can go stale relative to
+  // true chain time (confirmed directly: after an out-of-band clock jump, getBlock("latest") kept
+  // returning the pre-jump timestamp while eth_getBlockByNumber returned the correct one), which
+  // would compute an already-expired deadline. Only reproducible against a devnet whose clock can
+  // jump out of band (this is what companion/scripts/e2e-smoke.ts does to clear the governance
+  // cooldown); a real chain's block time only ever moves forward through normal polling. Fixing at
+  // the source rather than only in the test script, since the raw call is just as cheap either way.
+  const block = await provider.send("eth_getBlockByNumber", ["latest", false]);
+  if (!block?.timestamp) throw new Error("RPC did not return a latest block");
+  return BigInt(block.timestamp) + BigInt(validitySeconds);
 }
 
 function vaultContract(vaultAddress: string, runner: JsonRpcProvider | Signer): Contract {
@@ -85,6 +120,11 @@ export async function createVault(
   broadcaster: Signer,
 ): Promise<string> {
   const factory = factoryContract(factoryAddress, broadcaster);
+  const implementationAddress: string = await factory.implementation();
+  const implementation = new Contract(implementationAddress, IMPLEMENTATION_ABI, broadcaster);
+  if ((await implementation.implementationId()) !== RETAIL_IMPLEMENTATION_ID) {
+    throw new Error("Factory points to an unexpected VorkaVault implementation edition");
+  }
   const tx = await factory.createVault(fallbackAddr, authAddr);
   await tx.wait();
   return factory.vaultOf(broadcaster.address);
@@ -94,11 +134,12 @@ export async function submitWithdraw(
   vaultAddress: string,
   token: string,
   amount: bigint,
+  deadline: bigint,
   signature: string,
   broadcaster: Signer,
 ): Promise<string> {
   const vault = vaultContract(vaultAddress, broadcaster);
-  const tx = await vault.withdraw(token, amount, signature);
+  const tx = await vault.withdraw(token, amount, deadline, signature);
   const receipt = await tx.wait();
   return receipt.hash;
 }
@@ -108,11 +149,12 @@ export async function submitExecute(
   target: string,
   value: bigint,
   data: string,
+  deadline: bigint,
   signature: string,
   broadcaster: Signer,
 ): Promise<string> {
   const vault = vaultContract(vaultAddress, broadcaster);
-  const tx = await vault.execute(target, value, data, signature);
+  const tx = await vault.execute(target, value, data, deadline, signature);
   const receipt = await tx.wait();
   return receipt.hash;
 }
@@ -122,11 +164,12 @@ export async function submitModifyIdentity(
   newOwner: string,
   newFallback: string,
   newAuth: string,
+  deadline: bigint,
   signature: string,
   broadcaster: Signer,
 ): Promise<string> {
   const vault = vaultContract(vaultAddress, broadcaster);
-  const tx = await vault.modifyIdentity(newOwner, newFallback, newAuth, signature);
+  const tx = await vault.modifyIdentity(newOwner, newFallback, newAuth, deadline, signature);
   const receipt = await tx.wait();
   return receipt.hash;
 }
