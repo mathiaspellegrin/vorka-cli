@@ -3,7 +3,13 @@ import { Command } from "commander";
 import { Contract, Wallet, ZeroAddress, parseEther, parseUnits } from "ethers";
 import prompts from "prompts";
 import path from "node:path";
-import { backupKeystores, generateKeystores, unlockKeystores } from "./keystore.js";
+import {
+  backupKeystores,
+  generateKeystores,
+  readAddressManifest,
+  unlockAuthKeystore,
+  unlockFallbackKeystore,
+} from "./keystore.js";
 import {
   CHAINS,
   createVault,
@@ -63,11 +69,20 @@ program
   .description("Generate fresh auth/fallback keypairs and write encrypted keystores to --dir")
   .action(async () => {
     const opts = program.opts();
-    const password = await askPassword("New password (protects both keys)");
-    const confirm = await askPassword("Confirm password");
-    if (password !== confirm) throw new Error("Passwords did not match");
+    const authPassword = await askPassword("New auth (operational) password");
+    const authConfirm = await askPassword("Confirm auth password");
+    if (authPassword !== authConfirm) throw new Error("Auth passwords did not match");
 
-    const { authAddress, fallbackAddress } = await generateKeystores(opts.dir, password);
+    const fallbackPassword = await askPassword("New fallback (recovery) password — must differ from the auth password");
+    const fallbackConfirm = await askPassword("Confirm fallback password");
+    if (fallbackPassword !== fallbackConfirm) throw new Error("Fallback passwords did not match");
+    if (fallbackPassword === authPassword) {
+      throw new Error(
+        "Auth and fallback passwords must differ — a captured operational password must not also decrypt the recovery key.",
+      );
+    }
+
+    const { authAddress, fallbackAddress } = await generateKeystores(opts.dir, authPassword, fallbackPassword);
     console.log(`authAddress:     ${authAddress}`);
     console.log(`fallbackAddress: ${fallbackAddress}`);
     console.log("Keep the fallback key's password safe and offline — it is the recovery root for this vault.");
@@ -87,11 +102,10 @@ program
   .description("Deploy a new VorkaVault clone with this drive's auth/fallback keys")
   .action(async (factoryAddress: string) => {
     const opts = program.opts();
-    const password = await askPassword();
-    const { auth, fallback } = await unlockKeystores(opts.dir, password);
+    const { authAddress, fallbackAddress } = await readAddressManifest(opts.dir);
     const broadcaster = await requireBroadcaster(activeChain().rpc);
 
-    const vaultAddress = await createVault(factoryAddress, fallback.address, auth.address, broadcaster);
+    const vaultAddress = await createVault(factoryAddress, fallbackAddress, authAddress, broadcaster);
     console.log(`Vault deployed: ${vaultAddress}`);
   });
 
@@ -110,13 +124,13 @@ program
     if (!confirmed) return;
 
     const password = await askPassword();
-    const { auth } = await unlockKeystores(opts.dir, password);
+    const auth = await unlockAuthKeystore(opts.dir, password);
     const signature = await signWithdraw(
       auth,
       { chainId: chain.chainId, vaultAddress },
       token,
       amountWei,
-      state.nonce,
+      state.operationalNonce,
     );
 
     const broadcaster = await requireBroadcaster(chain.rpc);
@@ -170,14 +184,14 @@ program
     const value = parseEther(cmdOpts.value);
 
     const password = await askPassword();
-    const { auth } = await unlockKeystores(opts.dir, password);
+    const auth = await unlockAuthKeystore(opts.dir, password);
     const signature = await signExecute(
       auth,
       { chainId: chain.chainId, vaultAddress },
       action.target,
       value,
       data,
-      state.nonce,
+      state.operationalNonce,
     );
 
     const broadcaster = await requireBroadcaster(chain.rpc);
@@ -191,7 +205,7 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
   const state = await getVaultState(provider, vaultAddress);
 
   const password = await askPassword("Fallback key password");
-  const { fallback } = await unlockKeystores(dir, password);
+  const fallback = await unlockFallbackKeystore(dir, password);
 
   const newOwner = ZeroAddress;
   const newFallback = field === "fallback" ? newAddress : ZeroAddress;
@@ -203,7 +217,7 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
     newOwner,
     newFallback,
     newAuth,
-    state.nonce,
+    state.governanceNonce,
   );
 
   const broadcaster = await requireBroadcaster(chain.rpc);

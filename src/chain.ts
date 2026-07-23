@@ -25,7 +25,8 @@ const VORKA_VAULT_ABI = [
   "function owner() view returns (address)",
   "function fallbackAddress() view returns (address)",
   "function authAddress() view returns (address)",
-  "function nonce() view returns (uint256)",
+  "function operationalNonce() view returns (uint256)",
+  "function governanceNonce() view returns (uint256)",
   "function withdraw(address token, uint256 amount, bytes signature)",
   "function execute(address target, uint256 value, bytes data, bytes signature) returns (bytes)",
   "function modifyIdentity(address newOwner, address newFallback, address newAuth, bytes signature)",
@@ -42,7 +43,10 @@ export interface VaultState {
   owner: string;
   fallbackAddress: string;
   authAddress: string;
-  nonce: bigint;
+  /** Consumed by withdraw/execute. Independent from governanceNonce — see docs/VORKA.md. */
+  operationalNonce: bigint;
+  /** Consumed by modifyIdentity/modifyGovernance. Independent from operationalNonce. */
+  governanceNonce: bigint;
 }
 
 export function getProvider(rpcUrl: string): JsonRpcProvider {
@@ -59,13 +63,14 @@ function factoryContract(factoryAddress: string, runner: JsonRpcProvider | Signe
 
 export async function getVaultState(provider: JsonRpcProvider, vaultAddress: string): Promise<VaultState> {
   const vault = vaultContract(vaultAddress, provider);
-  const [owner, fallbackAddress, authAddress, nonce] = await Promise.all([
+  const [owner, fallbackAddress, authAddress, operationalNonce, governanceNonce] = await Promise.all([
     vault.owner(),
     vault.fallbackAddress(),
     vault.authAddress(),
-    vault.nonce(),
+    vault.operationalNonce(),
+    vault.governanceNonce(),
   ]);
-  return { owner, fallbackAddress, authAddress, nonce };
+  return { owner, fallbackAddress, authAddress, operationalNonce, governanceNonce };
 }
 
 /**

@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CHAINS, createVault, getProvider, getVaultState, submitModifyIdentity, submitWithdraw } from "../src/chain.js";
-import { generateKeystores, unlockKeystores } from "../src/keystore.js";
+import { generateKeystores, readAddressManifest, unlockAuthKeystore, unlockFallbackKeystore } from "../src/keystore.js";
 import { signModifyIdentity, signWithdraw } from "../src/sign.js";
 
 // Real end-to-end proof against a live Anvil devnet: generate keys, deploy a
@@ -60,18 +60,23 @@ async function main() {
   const newAuth = new Wallet(NEW_AUTH_KEY, provider);
 
   const dir = await mkdtemp(path.join(tmpdir(), "vorka-e2e-"));
-  const password = "smoke-test-password-not-real";
-  const { authAddress, fallbackAddress } = await generateKeystores(dir, password);
+  const authPassword = "smoke-test-auth-password-not-real";
+  const fallbackPassword = "smoke-test-fallback-password-not-real";
+  const { authAddress, fallbackAddress } = await generateKeystores(dir, authPassword, fallbackPassword);
   console.log(`Generated keys: auth=${authAddress} fallback=${fallbackAddress}`);
 
-  console.log("\n--- create-vault ---");
-  const vaultAddress = await createVault(factoryAddress, fallbackAddress, authAddress, broadcaster);
+  console.log("\n--- create-vault (address manifest only, no password) ---");
+  const manifest = await readAddressManifest(dir);
+  assertEqual(manifest.authAddress, authAddress, "manifest authAddress matches generated key");
+  assertEqual(manifest.fallbackAddress, fallbackAddress, "manifest fallbackAddress matches generated key");
+  const vaultAddress = await createVault(factoryAddress, manifest.fallbackAddress, manifest.authAddress, broadcaster);
   console.log(`Vault deployed: ${vaultAddress}`);
   const initialState = await getVaultState(provider, vaultAddress);
   assertEqual(initialState.owner, broadcaster.address, "owner is the createVault caller");
   assertEqual(initialState.authAddress, authAddress, "authAddress matches generated key");
   assertEqual(initialState.fallbackAddress, fallbackAddress, "fallbackAddress matches generated key");
-  assertEqual(initialState.nonce, 0n, "nonce starts at 0");
+  assertEqual(initialState.operationalNonce, 0n, "operationalNonce starts at 0");
+  assertEqual(initialState.governanceNonce, 0n, "governanceNonce starts at 0");
 
   console.log("\n--- fund vault ---");
   const fundTx = await broadcaster.sendTransaction({ to: vaultAddress, value: parseEther("1") });
@@ -79,33 +84,34 @@ async function main() {
   const fundedBalance = await provider.getBalance(vaultAddress);
   assertEqual(fundedBalance, parseEther("1"), "vault balance after funding");
 
-  console.log("\n--- withdraw ---");
-  const { auth } = await unlockKeystores(dir, password);
+  console.log("\n--- withdraw (auth keystore only — fallback never touched) ---");
+  const auth = await unlockAuthKeystore(dir, authPassword);
   const withdrawAmount = parseEther("0.4");
   const withdrawSig = await signWithdraw(
     auth,
     { chainId: chain.chainId, vaultAddress },
     ZeroAddress,
     withdrawAmount,
-    initialState.nonce,
+    initialState.operationalNonce,
   );
   await submitWithdraw(vaultAddress, ZeroAddress, withdrawAmount, withdrawSig, broadcaster);
   const balanceAfterWithdraw = await provider.getBalance(vaultAddress);
   assertEqual(balanceAfterWithdraw, parseEther("0.6"), "vault balance after withdrawing 0.4 ETH");
   const stateAfterWithdraw = await getVaultState(provider, vaultAddress);
-  assertEqual(stateAfterWithdraw.nonce, 1n, "nonce consumed by withdraw");
+  assertEqual(stateAfterWithdraw.operationalNonce, 1n, "operationalNonce consumed by withdraw");
+  assertEqual(stateAfterWithdraw.governanceNonce, 0n, "governanceNonce untouched by withdraw");
 
-  console.log("\n--- rotate-auth (fast-forwarding past the 24h governance cooldown) ---");
+  console.log("\n--- rotate-auth (fallback keystore only, fast-forwarding past the 24h governance cooldown) ---");
   await provider.send("evm_increaseTime", [90000]);
   await provider.send("evm_mine", []);
-  const { fallback } = await unlockKeystores(dir, password);
+  const fallback = await unlockFallbackKeystore(dir, fallbackPassword);
   const rotateSig = await signModifyIdentity(
     fallback,
     { chainId: chain.chainId, vaultAddress },
     ZeroAddress,
     ZeroAddress,
     newAuth.address,
-    stateAfterWithdraw.nonce,
+    stateAfterWithdraw.governanceNonce,
   );
   await submitModifyIdentity(vaultAddress, ZeroAddress, ZeroAddress, newAuth.address, rotateSig, broadcaster);
   const stateAfterRotate = await getVaultState(provider, vaultAddress);
