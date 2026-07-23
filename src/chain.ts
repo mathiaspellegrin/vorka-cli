@@ -15,6 +15,9 @@ export interface ChainConfig {
 export const CHAINS: Record<string, ChainConfig> = {
   "conflux-mainnet": { rpc: "https://evm.confluxrpc.com", chainId: 1030 },
   "conflux-testnet": { rpc: "https://evmtestnet.confluxrpc.com", chainId: 71 },
+  // Local Anvil devnet (`anvil`'s default chain id) — for end-to-end testing
+  // against a real deployment, not a real chain. See companion/scripts/e2e-smoke.sh.
+  local: { rpc: "http://127.0.0.1:8545", chainId: 31337 },
 };
 
 /** Only the pieces of VorkaVault/VorkaVaultFactory the CLI actually touches. */

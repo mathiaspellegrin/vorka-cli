@@ -30,8 +30,9 @@ node dist/cli.js rotate-fallback <vaultAddress> <newFallbackAddress>
 ```
 
 `VORKA_BROADCASTER_KEY` must be set to a funded account's private key before
-any command that broadcasts a transaction — it only pays Conflux gas, it's
-never the vault's `authAddress`/`fallbackAddress`.
+any command that broadcasts a transaction — it only pays gas on the active
+chain (`--chain`, default `conflux-mainnet` — see `src/chain.ts`'s `CHAINS`),
+it's never the vault's `authAddress`/`fallbackAddress`.
 
 ## Tests
 
@@ -43,3 +44,17 @@ npm test
 package's EIP-712 encoding against the exact formula `VorkaVaultBase`/`VorkaVault`
 use on-chain. If it fails after a contract change, the typehashes have drifted
 out of sync — fix `src/domain.ts` before anything else.
+
+## End-to-end smoke test
+
+```
+./scripts/e2e-smoke.sh
+```
+
+Starts a local Anvil devnet, deploys `VorkaVault`/`VorkaVaultFactory` for
+real, then runs `scripts/e2e-smoke.ts` through a full create-vault → fund →
+withdraw → rotate-auth flow against that deployment, asserting on-chain
+state after each step. Proves the contracts and this package's keystore/
+signing/chain code genuinely interoperate — unit tests alone don't catch
+that. Uses `--chain local` (`src/chain.ts`'s `CHAINS.local`, Anvil's default
+`127.0.0.1:8545`/chain id `31337`).
