@@ -19,7 +19,7 @@ import { encodeActionCall, findAction, loadRegistry } from "./registry.js";
 import { reviewActionCall } from "./review.js";
 
 const program = new Command();
-program.name("fluxpad").description("FluxPad companion CLI").version("0.1.0");
+program.name("vorka").description("Vorka companion CLI").version("0.1.0");
 
 program
   .option("--dir <path>", "keystore directory (the mounted USB drive)", process.cwd())
@@ -33,10 +33,10 @@ async function askPassword(message = "Password"): Promise<string> {
 }
 
 async function requireBroadcaster(rpcUrl: string): Promise<Wallet> {
-  const key = process.env.FLUXPAD_BROADCASTER_KEY;
+  const key = process.env.VORKA_BROADCASTER_KEY;
   if (!key) {
     throw new Error(
-      "Set FLUXPAD_BROADCASTER_KEY to a funded gas-paying account's private key. " +
+      "Set VORKA_BROADCASTER_KEY to a funded gas-paying account's private key. " +
         "This is separate from authAddress/fallbackAddress — it only pays Conflux gas, never holds vault assets.",
     );
   }
@@ -76,7 +76,7 @@ program
 
 program
   .command("create-vault <factoryAddress>")
-  .description("Deploy a new FluxVault clone with this drive's auth/fallback keys")
+  .description("Deploy a new VorkaVault clone with this drive's auth/fallback keys")
   .action(async (factoryAddress: string) => {
     const opts = program.opts();
     const password = await askPassword();
@@ -118,7 +118,7 @@ program
 program
   .command("list-actions")
   .description("List the curated actions execute() can be used against")
-  .option("--registry <path>", "path to the actions registry", path.join(process.cwd(), "fluxpad-actions.json"))
+  .option("--registry <path>", "path to the actions registry", path.join(process.cwd(), "vorka-actions.json"))
   .action(async (cmdOpts) => {
     const actions = await loadRegistry(cmdOpts.registry);
     for (const action of actions) {
@@ -129,7 +129,7 @@ program
 program
   .command("execute <vaultAddress> <actionId> <argsJson>")
   .description('Build, review, sign, and broadcast a curated execute() call. argsJson: e.g. \'["0xSpender", "1000"]\'')
-  .option("--registry <path>", "path to the actions registry", path.join(process.cwd(), "fluxpad-actions.json"))
+  .option("--registry <path>", "path to the actions registry", path.join(process.cwd(), "vorka-actions.json"))
   .option("--value <ether>", "native value to send with the call", "0")
   .action(async (vaultAddress: string, actionId: string, argsJson: string, cmdOpts) => {
     const opts = program.opts();

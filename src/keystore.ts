@@ -2,8 +2,8 @@ import { Wallet, type HDNodeWallet } from "ethers";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-export const AUTH_KEYSTORE_FILENAME = "fluxpad-auth.json";
-export const FALLBACK_KEYSTORE_FILENAME = "fluxpad-fallback.json";
+export const AUTH_KEYSTORE_FILENAME = "vorka-auth.json";
+export const FALLBACK_KEYSTORE_FILENAME = "vorka-fallback.json";
 
 type AnyWallet = Wallet | HDNodeWallet;
 

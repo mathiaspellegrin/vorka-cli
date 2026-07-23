@@ -2,9 +2,9 @@ import { keccak256, type TypedDataDomain, type TypedDataField } from "ethers";
 
 /**
  * EIP-712 domain/type builders that mirror the Solidity side field-for-field:
- * - domain name/version: FluxVaultBase's `EIP712("FluxVault", "1")` (src/FluxVault.sol)
- * - struct shapes: FluxVaultBase.WITHDRAW_TYPEHASH / EXECUTE_TYPEHASH and
- *   FluxVault.MODIFY_IDENTITY_TYPEHASH (src/FluxVaultBase.sol, src/FluxVault.sol)
+ * - domain name/version: VorkaVaultBase's `EIP712("VorkaVault", "1")` (src/VorkaVault.sol)
+ * - struct shapes: VorkaVaultBase.WITHDRAW_TYPEHASH / EXECUTE_TYPEHASH and
+ *   VorkaVault.MODIFY_IDENTITY_TYPEHASH (src/VorkaVaultBase.sol, src/VorkaVault.sol)
  *
  * This is the single source of truth on the app side — if a typehash ever changes
  * in the Solidity contracts, the corresponding type below must change identically,
@@ -46,7 +46,7 @@ const MODIFY_IDENTITY_TYPES: Record<string, TypedDataField[]> = {
 
 export function domainFor({ chainId, vaultAddress }: VaultDomain): TypedDataDomain {
   return {
-    name: "FluxVault",
+    name: "VorkaVault",
     version: "1",
     chainId,
     verifyingContract: vaultAddress,

@@ -5,8 +5,8 @@ export const CONFLUX_TESTNET_RPC = "https://evmtestnet.confluxrpc.com";
 export const CONFLUX_MAINNET_CHAIN_ID = 1030;
 export const CONFLUX_TESTNET_CHAIN_ID = 71;
 
-/** Only the pieces of FluxVault/FluxVaultFactory the CLI actually touches. */
-const FLUX_VAULT_ABI = [
+/** Only the pieces of VorkaVault/VorkaVaultFactory the CLI actually touches. */
+const VORKA_VAULT_ABI = [
   "function owner() view returns (address)",
   "function fallbackAddress() view returns (address)",
   "function authAddress() view returns (address)",
@@ -16,7 +16,7 @@ const FLUX_VAULT_ABI = [
   "function modifyIdentity(address newOwner, address newFallback, address newAuth, bytes signature)",
 ];
 
-const FLUX_VAULT_FACTORY_ABI = [
+const VORKA_VAULT_FACTORY_ABI = [
   "function createVault(address fallbackAddr, address authAddr) returns (address)",
   "function vaultOf(address creator) view returns (address)",
 ];
@@ -35,11 +35,11 @@ export function getProvider(rpcUrl: string): JsonRpcProvider {
 }
 
 function vaultContract(vaultAddress: string, runner: JsonRpcProvider | Signer): Contract {
-  return new Contract(vaultAddress, FLUX_VAULT_ABI, runner);
+  return new Contract(vaultAddress, VORKA_VAULT_ABI, runner);
 }
 
 function factoryContract(factoryAddress: string, runner: JsonRpcProvider | Signer): Contract {
-  return new Contract(factoryAddress, FLUX_VAULT_FACTORY_ABI, runner);
+  return new Contract(factoryAddress, VORKA_VAULT_FACTORY_ABI, runner);
 }
 
 export async function getVaultState(provider: JsonRpcProvider, vaultAddress: string): Promise<VaultState> {
@@ -55,7 +55,7 @@ export async function getVaultState(provider: JsonRpcProvider, vaultAddress: str
 
 /**
  * `broadcaster` pays Conflux gas for every function below — it is a separate,
- * low-stakes account from `authAddress`/`fallbackAddress` (see docs/FLUXPAD.md).
+ * low-stakes account from `authAddress`/`fallbackAddress` (see docs/VORKA.md).
  * It must already be connected to a provider (`new Wallet(key, provider)`).
  */
 export async function createVault(

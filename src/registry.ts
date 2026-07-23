@@ -4,9 +4,9 @@ import { promises as fs } from "node:fs";
 /**
  * A curated, vetted action: a specific target contract + ABI fragment the app
  * is willing to build an `execute()` call against. There is no "paste a raw
- * target + calldata" path in the default flow — see docs/FLUXPAD.md, "No web,
+ * target + calldata" path in the default flow — see docs/VORKA.md, "No web,
  * no WalletConnect". For this pass the registry is a bundled local file; a
- * live FluxPad-signed registry is a documented fast-follow, not built here.
+ * live Vorka-signed registry is a documented fast-follow, not built here.
  */
 export interface RegistryAction {
   id: string;

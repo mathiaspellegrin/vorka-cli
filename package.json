@@ -1,10 +1,10 @@
 {
-  "name": "fluxpad-cli",
+  "name": "vorka-cli",
   "version": "0.1.0",
-  "description": "FluxPad companion CLI: keystore generation, EIP-712 signing, and broadcasting for FluxVault.",
+  "description": "Vorka companion CLI: keystore generation, EIP-712 signing, and broadcasting for VorkaVault.",
   "type": "module",
   "bin": {
-    "fluxpad": "./dist/cli.js"
+    "vorka": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

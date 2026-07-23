@@ -4,9 +4,9 @@ import { executeTypedData, modifyIdentityTypedData, withdrawTypedData } from "..
 
 /**
  * These tests independently re-derive the EIP-712 digest using the exact
- * formula `FluxVaultBase`/`FluxVault` use on-chain (domain separator +
- * struct hash + "\x19\x01" prefix — see src/FluxVaultBase.sol,
- * src/FluxVault.sol), then assert that ethers' `TypedDataEncoder` — the same
+ * formula `VorkaVaultBase`/`VorkaVault` use on-chain (domain separator +
+ * struct hash + "\x19\x01" prefix — see src/VorkaVaultBase.sol,
+ * src/VorkaVault.sol), then assert that ethers' `TypedDataEncoder` — the same
  * machinery `domain.ts`/`sign.ts` use for real signing — produces an
  * identical digest for the same inputs. A mismatch here means every
  * signature this CLI produces would be rejected on-chain.
@@ -25,7 +25,7 @@ function rawDomainSeparator(): string {
       ["bytes32", "bytes32", "bytes32", "uint256", "address"],
       [
         EIP712_DOMAIN_TYPEHASH,
-        keccak256(toUtf8Bytes("FluxVault")),
+        keccak256(toUtf8Bytes("VorkaVault")),
         keccak256(toUtf8Bytes("1")),
         CHAIN_ID,
         VAULT_ADDRESS,
