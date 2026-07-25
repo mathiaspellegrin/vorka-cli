@@ -30,14 +30,18 @@ const VORKA_VAULT_ABI = [
   "function authAddress() view returns (address)",
   "function operationalNonce() view returns (uint256)",
   "function governanceNonce() view returns (uint256)",
+  "function emergencyNonce() view returns (uint256)",
+  "function frozen() view returns (bool)",
   "function withdraw(address token, uint256 amount, uint256 deadline, bytes signature)",
   "function execute(address target, uint256 value, bytes data, uint256 deadline, bytes signature) returns (bytes)",
   "function modifyIdentity(address newOwner, address newFallback, address newAuth, uint256 deadline, bytes signature)",
+  "function freeze(uint256 deadline, bytes signature)",
 ];
 
 const VORKA_VAULT_FACTORY_ABI = [
-  "function createVault(address fallbackAddr, address authAddr) returns (address)",
-  "function vaultOf(address creator) view returns (address)",
+  "function createVault(address owner, address fallbackAddress, address authAddress, bytes32 userSalt) returns (address)",
+  "function vaultOf(address owner, bytes32 userSalt) view returns (address)",
+  "function predictVaultAddress(address owner, address fallbackAddress, address authAddress, bytes32 userSalt) view returns (address)",
   "function implementation() view returns (address)",
 ];
 
@@ -53,6 +57,8 @@ export interface VaultState {
   operationalNonce: bigint;
   /** Consumed by modifyIdentity/modifyGovernance. Independent from operationalNonce. */
   governanceNonce: bigint;
+  emergencyNonce: bigint;
+  frozen: boolean;
 }
 
 export function getProvider(rpcUrl: string): JsonRpcProvider {
@@ -98,14 +104,16 @@ function factoryContract(factoryAddress: string, runner: JsonRpcProvider | Signe
 
 export async function getVaultState(provider: JsonRpcProvider, vaultAddress: string): Promise<VaultState> {
   const vault = vaultContract(vaultAddress, provider);
-  const [owner, fallbackAddress, authAddress, operationalNonce, governanceNonce] = await Promise.all([
+  const [owner, fallbackAddress, authAddress, operationalNonce, governanceNonce, emergencyNonce, frozen] = await Promise.all([
     vault.owner(),
     vault.fallbackAddress(),
     vault.authAddress(),
     vault.operationalNonce(),
     vault.governanceNonce(),
+    vault.emergencyNonce(),
+    vault.frozen(),
   ]);
-  return { owner, fallbackAddress, authAddress, operationalNonce, governanceNonce };
+  return { owner, fallbackAddress, authAddress, operationalNonce, governanceNonce, emergencyNonce, frozen };
 }
 
 /**
@@ -115,8 +123,10 @@ export async function getVaultState(provider: JsonRpcProvider, vaultAddress: str
  */
 export async function createVault(
   factoryAddress: string,
+  owner: string,
   fallbackAddr: string,
   authAddr: string,
+  userSalt: string,
   broadcaster: Signer,
 ): Promise<string> {
   const factory = factoryContract(factoryAddress, broadcaster);
@@ -125,9 +135,24 @@ export async function createVault(
   if ((await implementation.implementationId()) !== RETAIL_IMPLEMENTATION_ID) {
     throw new Error("Factory points to an unexpected VorkaVault implementation edition");
   }
-  const tx = await factory.createVault(fallbackAddr, authAddr);
+  const predicted: string = await factory.predictVaultAddress(owner, fallbackAddr, authAddr, userSalt);
+  const tx = await factory.createVault(owner, fallbackAddr, authAddr, userSalt);
   await tx.wait();
-  return factory.vaultOf(broadcaster.address);
+  const deployed: string = await factory.vaultOf(owner, userSalt);
+  if (deployed !== predicted) throw new Error(`Factory deployed ${deployed}, expected ${predicted}`);
+  return deployed;
+}
+
+export async function submitFreeze(
+  vaultAddress: string,
+  deadline: bigint,
+  signature: string,
+  broadcaster: Signer,
+): Promise<string> {
+  const vault = vaultContract(vaultAddress, broadcaster);
+  const tx = await vault.freeze(deadline, signature);
+  const receipt = await tx.wait();
+  return receipt.hash;
 }
 
 export async function submitWithdraw(

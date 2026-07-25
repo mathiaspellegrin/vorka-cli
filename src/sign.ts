@@ -1,5 +1,5 @@
 import type { Wallet, HDNodeWallet } from "ethers";
-import { executeTypedData, modifyIdentityTypedData, withdrawTypedData, type VaultDomain } from "./domain.js";
+import { executeTypedData, freezeTypedData, modifyIdentityTypedData, withdrawTypedData, type VaultDomain } from "./domain.js";
 
 type Signer = Wallet | HDNodeWallet;
 
@@ -44,5 +44,15 @@ export async function signModifyIdentity(
   nonce: bigint,
 ): Promise<string> {
   const typed = modifyIdentityTypedData(domainParams, newOwner, newFallback, newAuth, deadline, nonce);
+  return signer.signTypedData(typed.domain, typed.types, typed.value);
+}
+
+export async function signFreeze(
+  signer: Signer,
+  domainParams: VaultDomain,
+  deadline: bigint,
+  nonce: bigint,
+): Promise<string> {
+  const typed = freezeTypedData(domainParams, deadline, nonce);
   return signer.signTypedData(typed.domain, typed.types, typed.value);
 }

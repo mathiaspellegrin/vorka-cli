@@ -47,6 +47,13 @@ const MODIFY_IDENTITY_TYPES: Record<string, TypedDataField[]> = {
   ],
 };
 
+const FREEZE_TYPES: Record<string, TypedDataField[]> = {
+  Freeze: [
+    { name: "deadline", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+  ],
+};
+
 export function domainFor({ chainId, vaultAddress }: VaultDomain): TypedDataDomain {
   return {
     name: "VorkaVault",
@@ -97,5 +104,13 @@ export function modifyIdentityTypedData(
     domain: domainFor(domain),
     types: MODIFY_IDENTITY_TYPES,
     value: { newOwner, newFallback, newAuth, deadline, nonce },
+  };
+}
+
+export function freezeTypedData(domain: VaultDomain, deadline: bigint, nonce: bigint) {
+  return {
+    domain: domainFor(domain),
+    types: FREEZE_TYPES,
+    value: { deadline, nonce },
   };
 }

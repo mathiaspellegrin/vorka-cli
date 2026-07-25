@@ -77,7 +77,14 @@ async function main() {
   const manifest = await readAddressManifest(dir);
   assertEqual(manifest.authAddress, authAddress, "manifest authAddress matches generated key");
   assertEqual(manifest.fallbackAddress, fallbackAddress, "manifest fallbackAddress matches generated key");
-  const vaultAddress = await createVault(factoryAddress, manifest.fallbackAddress, manifest.authAddress, broadcaster);
+  const vaultAddress = await createVault(
+    factoryAddress,
+    broadcaster.address,
+    manifest.fallbackAddress,
+    manifest.authAddress,
+    manifest.generationId,
+    broadcaster,
+  );
   console.log(`Vault deployed: ${vaultAddress}`);
   const initialState = await getVaultState(provider, vaultAddress);
   assertEqual(initialState.owner, broadcaster.address, "owner is the createVault caller");

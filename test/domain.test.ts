@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AbiCoder, TypedDataEncoder, concat, keccak256, toUtf8Bytes } from "ethers";
-import { executeTypedData, modifyIdentityTypedData, withdrawTypedData } from "../src/domain.js";
+import { executeTypedData, freezeTypedData, modifyIdentityTypedData, withdrawTypedData } from "../src/domain.js";
 
 /**
  * These tests independently re-derive the EIP-712 digest using the exact
@@ -123,6 +123,21 @@ describe("domain — matches Solidity's _hashTypedDataV4 exactly", () => {
       deadline,
       nonce,
     );
+    expect(TypedDataEncoder.hash(typed.domain, typed.types, typed.value)).toBe(expected);
+  });
+
+  it("Freeze", () => {
+    const FREEZE_TYPEHASH = keccak256(toUtf8Bytes("Freeze(uint256 deadline,uint256 nonce)"));
+    const deadline = 2_000_000_000n;
+    const nonce = 3n;
+    const structHash = keccak256(
+      AbiCoder.defaultAbiCoder().encode(
+        ["bytes32", "uint256", "uint256"],
+        [FREEZE_TYPEHASH, deadline, nonce],
+      ),
+    );
+    const expected = rawDigest(structHash);
+    const typed = freezeTypedData({ chainId: CHAIN_ID, vaultAddress: VAULT_ADDRESS }, deadline, nonce);
     expect(TypedDataEncoder.hash(typed.domain, typed.types, typed.value)).toBe(expected);
   });
 });

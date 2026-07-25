@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { Contract, Wallet, ZeroAddress, parseEther, parseUnits, type JsonRpcProvider } from "ethers";
+import { Contract, Wallet, ZeroAddress, getAddress, parseEther, parseUnits, type JsonRpcProvider } from "ethers";
 import prompts from "prompts";
 import path from "node:path";
 import {
@@ -17,12 +17,13 @@ import {
   getVaultState,
   signingDeadline,
   submitExecute,
+  submitFreeze,
   submitModifyIdentity,
   submitWithdraw,
   type ChainConfig,
 } from "./chain.js";
-import { signExecute, signModifyIdentity, signWithdraw } from "./sign.js";
-import { encodeActionCall, findAction, loadRegistry } from "./registry.js";
+import { signExecute, signFreeze, signModifyIdentity, signWithdraw } from "./sign.js";
+import { encodeActionCall, findAction, loadRegistry, verifyAndSimulateAction } from "./registry.js";
 import { reviewActionCall } from "./review.js";
 
 const program = new Command();
@@ -99,15 +100,33 @@ program
   });
 
 program
-  .command("create-vault <factoryAddress>")
-  .description("Deploy a new VorkaVault clone with this drive's auth/fallback keys")
-  .action(async (factoryAddress: string) => {
+  .command("create-vault <factoryAddress> <beneficiaryAddress>")
+  .description("Deploy this drive's deterministic VorkaVault; beneficiary receives fixed withdrawals")
+  .action(async (factoryAddress: string, beneficiaryAddress: string) => {
     const opts = program.opts();
-    const { authAddress, fallbackAddress } = await readAddressManifest(opts.dir);
+    const beneficiary = getAddress(beneficiaryAddress);
+    const manifest = await readAddressManifest(opts.dir);
+    const { authAddress, fallbackAddress } = manifest;
+    console.log(`Beneficiary (fixed withdrawal destination): ${beneficiary}`);
+    console.log(`Operational key:                         ${authAddress}`);
+    console.log(`Recovery key:                            ${fallbackAddress}`);
+    const { confirmed } = await prompts({
+      type: "confirm",
+      name: "confirmed",
+      message: "Deploy this vault? Verify the beneficiary carefully; changing it later requires recovery authorization.",
+    });
+    if (!confirmed) return;
     const provider = await getValidatedProvider(activeChain());
     const broadcaster = await requireBroadcaster(provider);
 
-    const vaultAddress = await createVault(factoryAddress, fallbackAddress, authAddress, broadcaster);
+    const vaultAddress = await createVault(
+      factoryAddress,
+      beneficiary,
+      fallbackAddress,
+      authAddress,
+      manifest.generationId,
+      broadcaster,
+    );
     console.log(`Vault deployed: ${vaultAddress}`);
   });
 
@@ -127,6 +146,9 @@ program
 
     const password = await askPassword();
     const auth = await unlockAuthKeystore(opts.dir, password);
+    if (auth.address !== state.authAddress) {
+      throw new Error(`Inserted operational key ${auth.address} does not control vault ${vaultAddress}`);
+    }
     const deadline = await signingDeadline(provider);
     const signature = await signWithdraw(
       auth,
@@ -175,6 +197,9 @@ program
 
     const args = JSON.parse(argsJson) as unknown[];
     const data = encodeActionCall(action, args);
+    const provider = await getValidatedProvider(chain);
+    const value = parseEther(cmdOpts.value);
+    await verifyAndSimulateAction(provider, vaultAddress, action, value, data);
     const { summary, warnings } = reviewActionCall(action, data);
 
     console.log(summary);
@@ -183,12 +208,13 @@ program
     const { confirmed } = await prompts({ type: "confirm", name: "confirmed", message: "Sign and broadcast this call?" });
     if (!confirmed) return;
 
-    const provider = await getValidatedProvider(chain);
     const state = await getVaultState(provider, vaultAddress);
-    const value = parseEther(cmdOpts.value);
 
     const password = await askPassword();
     const auth = await unlockAuthKeystore(opts.dir, password);
+    if (auth.address !== state.authAddress) {
+      throw new Error(`Inserted operational key ${auth.address} does not control vault ${vaultAddress}`);
+    }
     const deadline = await signingDeadline(provider);
     const signature = await signExecute(
       auth,
@@ -212,6 +238,9 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
 
   const password = await askPassword("Fallback key password");
   const fallback = await unlockFallbackKeystore(dir, password);
+  if (fallback.address !== state.fallbackAddress) {
+    throw new Error(`Inserted fallback key ${fallback.address} does not control vault ${vaultAddress}`);
+  }
 
   const newOwner = ZeroAddress;
   const newFallback = field === "fallback" ? newAddress : ZeroAddress;
@@ -240,6 +269,33 @@ async function rotate(vaultAddress: string, field: "auth" | "fallback", newAddre
   );
   console.log(`Broadcast: ${txHash}`);
 }
+
+program
+  .command("freeze <vaultAddress>")
+  .description("Immediately block withdraw/execute using the fallback recovery key")
+  .action(async (vaultAddress: string) => {
+    const opts = program.opts();
+    const chain = activeChain();
+    const provider = await getValidatedProvider(chain);
+    const state = await getVaultState(provider, vaultAddress);
+    if (state.frozen) throw new Error("Vault is already frozen");
+
+    const password = await askPassword("Fallback key password");
+    const fallback = await unlockFallbackKeystore(opts.dir, password);
+    if (fallback.address !== state.fallbackAddress) {
+      throw new Error(`Inserted fallback key ${fallback.address} does not control vault ${vaultAddress}`);
+    }
+    const deadline = await signingDeadline(provider);
+    const signature = await signFreeze(
+      fallback,
+      { chainId: chain.chainId, vaultAddress },
+      deadline,
+      state.emergencyNonce,
+    );
+    const broadcaster = await requireBroadcaster(provider);
+    const txHash = await submitFreeze(vaultAddress, deadline, signature, broadcaster);
+    console.log(`Vault frozen: ${txHash}`);
+  });
 
 program
   .command("rotate-auth <vaultAddress> <newAuthAddress>")

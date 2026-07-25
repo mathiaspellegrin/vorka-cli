@@ -21,10 +21,11 @@ npm run build
 ```
 node dist/cli.js generate                                    # create your own keys
 node dist/cli.js backup <destination>                        # copy the encrypted keystores elsewhere
-node dist/cli.js create-vault <factoryAddress>
+node dist/cli.js create-vault <factoryAddress> <beneficiaryAddress>
 node dist/cli.js withdraw <vaultAddress> <token> <amount>
 node dist/cli.js list-actions
 node dist/cli.js execute <vaultAddress> <actionId> <argsJson>
+node dist/cli.js freeze <vaultAddress>
 node dist/cli.js rotate-auth <vaultAddress> <newAuthAddress>
 node dist/cli.js rotate-fallback <vaultAddress> <newFallbackAddress>
 ```
@@ -38,7 +39,13 @@ it's never the vault's `authAddress`/`fallbackAddress`.
 
 ```
 npm test
+npm run build:portable
 ```
+
+`build:portable` creates a single executable for the current operating system in
+`release/`. Build releases on each target OS with an official, statically linked
+Node distribution; distro builds that link `libnode` dynamically cannot be used
+as a Node SEA base binary.
 
 `test/domain.test.ts` is the one that matters most: it cross-checks this
 package's EIP-712 encoding against the exact formula `VorkaVaultBase`/`VorkaVault`

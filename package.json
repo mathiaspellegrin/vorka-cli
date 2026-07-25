@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:portable": "node scripts/build-portable.mjs",
     "test": "vitest run",
     "cli": "tsx src/cli.ts"
   },
@@ -21,6 +22,8 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/prompts": "^2.4.9",
+    "esbuild": "^0.25.12",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.10"
