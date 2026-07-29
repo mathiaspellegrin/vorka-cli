@@ -21,7 +21,7 @@ await mkdir(releaseDir, { recursive: true });
 execFileSync(
   path.join(root, "node_modules", ".bin", process.platform === "win32" ? "esbuild.cmd" : "esbuild"),
   ["src/setup-app.ts", "--bundle", "--platform=node", "--format=cjs", `--outfile=${bundlePath}`],
-  { stdio: "inherit" },
+  { stdio: "inherit", shell: process.platform === "win32" },
 );
 
 const supportsBuiltInSea = process.allowedNodeEnvironmentFlags.has("--build-sea");
@@ -63,7 +63,7 @@ execFileSync(
     "--sentinel-fuse",
     seaFuse,
   ],
-  { stdio: "inherit" },
+  { stdio: "inherit", shell: process.platform === "win32" },
 );
 if (process.platform === "darwin") {
   execFileSync("codesign", ["--sign", "-", executablePath], { stdio: "inherit" });
