@@ -2,7 +2,7 @@
 
 The customer-facing companion app: keystore generation, EIP-712 signing, and
 broadcasting for `VorkaVault`. This is what ships on a sold drive — see
-`docs/VORKA.md` in the [`vorka`](https://github.com/Fluxpad/vorka) repo for
+`docs/VORKA.md` in the [`vorka-docs`](https://github.com/Fluxpad/vorka-docs) repo for
 the full design (key custody model, why `execute()` has no allowlist, the
 curated action registry, etc.).
 
@@ -69,7 +69,7 @@ out of sync — fix `src/domain.ts` before anything else.
 
 ## End-to-end smoke test
 
-Moved to the [`vorka`](https://github.com/Fluxpad/vorka) hub repo's
+Moved to the [`vorka-docs`](https://github.com/Fluxpad/vorka-docs) hub repo's
 `scripts/e2e-smoke.sh` — it needs both `vorka-contracts` (for `forge`) and
 this repo cloned as sibling directories, so it can't live inside either
 one alone.
