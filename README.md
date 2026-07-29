@@ -2,12 +2,13 @@
 
 The customer-facing companion app: keystore generation, EIP-712 signing, and
 broadcasting for `VorkaVault`. This is what ships on a sold drive — see
-`docs/VORKA.md` at the repo root for the full design (key custody model,
-why `execute()` has no allowlist, the curated action registry, etc.).
+`docs/VORKA.md` in the [`vorka`](https://github.com/Fluxpad/vorka) repo for
+the full design (key custody model, why `execute()` has no allowlist, the
+curated action registry, etc.).
 
-This package will eventually be its own private repo. `../provisioning/`
-depends on this package's build output (`dist/`) to flash drives before
-sale — build this one first.
+Split out of the `vorka` monorepo. [`vorka-provisioning`](https://github.com/Fluxpad/vorka-provisioning)
+depends on this package's build output via a pinned git dependency to flash
+drives before sale — build and tag this one first when cutting a release.
 
 ## Setup
 
@@ -68,14 +69,7 @@ out of sync — fix `src/domain.ts` before anything else.
 
 ## End-to-end smoke test
 
-```
-./scripts/e2e-smoke.sh
-```
-
-Starts a local Anvil devnet, deploys `VorkaVault`/`VorkaVaultFactory` for
-real, then runs `scripts/e2e-smoke.ts` through a full create-vault → fund →
-withdraw → rotate-auth flow against that deployment, asserting on-chain
-state after each step. Proves the contracts and this package's keystore/
-signing/chain code genuinely interoperate — unit tests alone don't catch
-that. Uses `--chain local` (`src/chain.ts`'s `CHAINS.local`, Anvil's default
-`127.0.0.1:8545`/chain id `31337`).
+Moved to the [`vorka`](https://github.com/Fluxpad/vorka) hub repo's
+`scripts/e2e-smoke.sh` — it needs both `vorka-contracts` (for `forge`) and
+this repo cloned as sibling directories, so it can't live inside either
+one alone.

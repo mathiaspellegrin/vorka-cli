@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.portable-build/
+release/
