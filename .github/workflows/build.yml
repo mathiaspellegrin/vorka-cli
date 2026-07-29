@@ -1,0 +1,33 @@
+name: Build portable Vorka app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "25.6.0"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:portable
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vorka-${{ runner.os }}-${{ runner.arch }}
+          path: release/Vorka-*
+          if-no-files-found: error
