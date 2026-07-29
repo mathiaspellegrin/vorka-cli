@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "build:portable": "node scripts/build-portable.mjs",
     "test": "vitest run",
     "cli": "tsx src/cli.ts",
