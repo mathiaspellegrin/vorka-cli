@@ -4,13 +4,15 @@
   "description": "Vorka companion CLI: keystore generation, EIP-712 signing, and broadcasting for VorkaVault.",
   "type": "module",
   "bin": {
-    "vorka": "./dist/cli.js"
+    "vorka": "./dist/cli.js",
+    "vorka-setup": "./dist/setup-app.js"
   },
   "scripts": {
     "build": "tsc",
     "build:portable": "node scripts/build-portable.mjs",
     "test": "vitest run",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "setup": "tsx src/setup-app.ts"
   },
   "dependencies": {
     "@zxcvbn-ts/core": "^4.1.2",

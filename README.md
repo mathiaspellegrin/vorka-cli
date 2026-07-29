@@ -18,6 +18,14 @@ npm run build
 
 ## Commands
 
+For customers, launch the native `Vorka-Windows-*`, `Vorka-macOS-*`, or
+`Vorka-Linux-*` application from the USB. It detects the provisioned drive,
+opens a local setup screen, and creates the encrypted auth and fallback
+keystores only after the customer chooses their passwords. No Node.js or
+installation is required for these release builds.
+
+The CLI remains the open-source/manual interface:
+
 ```
 node dist/cli.js generate                                    # create your own keys
 node dist/cli.js backup <destination>                        # copy the encrypted keystores elsewhere
@@ -46,6 +54,12 @@ npm run build:portable
 `release/`. Build releases on each target OS with an official, statically linked
 Node distribution; distro builds that link `libnode` dynamically cannot be used
 as a Node SEA base binary.
+
+The workflow `.github/workflows/portable-apps.yml` builds all three operating
+systems natively and combines them into `Vorka-Customer-MultiOS`. Production
+Windows and macOS releases still need vendor code signing (and Apple
+notarization) before public distribution; the CI's macOS signature is only an
+ad-hoc development signature.
 
 `test/domain.test.ts` is the one that matters most: it cross-checks this
 package's EIP-712 encoding against the exact formula `VorkaVaultBase`/`VorkaVault`
