@@ -1,4 +1,4 @@
-name: Build portable Vorka app
+name: Build native Vorka for Windows
 
 on:
   workflow_dispatch:
@@ -10,11 +10,7 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-14, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
@@ -25,9 +21,35 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm run build:portable
+      - run: npm run package:windows
+      - name: Sign and verify Windows executable
+        shell: pwsh
+        env:
+          VORKA_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.VORKA_WINDOWS_CERTIFICATE_BASE64 }}
+          VORKA_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.VORKA_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VORKA_WINDOWS_CERTIFICATE_BASE64)) {
+            Write-Host "No Authenticode certificate configured; development artifact remains unsigned."
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "vorka-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:VORKA_WINDOWS_CERTIFICATE_BASE64))
+            $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if (-not $signTool) { throw "Windows SignTool was not found" }
+            $executable = Get-ChildItem "release\Vorka-Windows-*.exe" | Select-Object -First 1
+            if (-not $executable) { throw "The Windows Vorka executable was not found" }
+            & $signTool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificatePath /p $env:VORKA_WINDOWS_CERTIFICATE_PASSWORD $executable.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed" }
+            & $signTool.FullName verify /pa /all $executable.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed" }
+          } finally {
+            Remove-Item $certificatePath -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: vorka-${{ runner.os }}-${{ runner.arch }}
-          path: release/Vorka-*
+          name: vorka-Windows-X64
+          path: release/Vorka-Windows-*.exe
           if-no-files-found: error

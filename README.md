@@ -19,11 +19,11 @@ npm run build
 
 ## Commands
 
-For customers, launch the native `Vorka-Windows-*`, `Vorka-macOS-*`, or
-`Vorka-Linux-*` application from the USB. It detects the provisioned drive,
-opens a local setup screen, and creates the encrypted auth and fallback
-keystores only after the customer chooses their passwords. No Node.js or
-installation is required for these release builds.
+For customers, launch `START VORKA.exe` from the USB. The Windows-first client
+opens in its own native Electron window—no browser, localhost server, Node.js
+installation, or browser extension is involved. It detects the provisioned
+drive and creates the encrypted auth and fallback keystores only after the
+customer chooses their passwords. macOS comes next and Linux later.
 
 The CLI remains the open-source/manual interface:
 
@@ -51,16 +51,13 @@ npm test
 npm run build:portable
 ```
 
-`build:portable` creates a single executable for the current operating system in
-`release/`. Build releases on each target OS with an official, statically linked
-Node distribution; distro builds that link `libnode` dynamically cannot be used
-as a Node SEA base binary.
+`npm run package:windows` builds the native Electron client as a portable
+Windows executable in `release/`. `build:portable` remains temporarily available
+for the old SEA setup while the migration is being completed.
 
-The workflow `.github/workflows/portable-apps.yml` builds all three operating
-systems natively and combines them into `Vorka-Customer-MultiOS`. Production
-Windows and macOS releases still need vendor code signing (and Apple
-notarization) before public distribution; the CI's macOS signature is only an
-ad-hoc development signature.
+The workflow `.github/workflows/build.yml` now builds Windows only. When the
+Authenticode certificate secrets are configured it signs and verifies the
+portable executable before upload.
 
 `test/domain.test.ts` is the one that matters most: it cross-checks this
 package's EIP-712 encoding against the exact formula `VorkaVaultBase`/`VorkaVault`

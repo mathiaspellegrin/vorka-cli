@@ -4,10 +4,18 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PROVISIONING_MANIFEST_FILENAME,
+  assertDriveWritableAndSpacious,
   defaultDriveRoots,
   detectVorkaDrives,
   requireDetectedUnconfiguredDrive,
 } from "../src/setup.js";
+
+const provisioningManifest = JSON.stringify({
+  format: "vorka-provisioned-drive-v1",
+  provisionedAt: "2026-07-30T00:00:00.000Z",
+  appVersion: "0.1.0",
+  portableApps: ["1 - WINDOWS/START VORKA.exe"],
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -34,11 +42,11 @@ describe("setup drive detection", () => {
     const ordinary = path.join(root, "ORDINARY");
     await fs.mkdir(vorka);
     await fs.mkdir(ordinary);
-    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), "{}");
+    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
 
     const drives = await detectVorkaDrives([root], "linux");
     expect(drives).toHaveLength(1);
-    expect(drives[0]).toMatchObject({ path: await fs.realpath(vorka), configured: false });
+    expect(drives[0]).toMatchObject({ path: await fs.realpath(vorka), configured: false, damaged: false });
   });
 
   it("authorizes only an auto-detected provisioned drive", async () => {
@@ -47,9 +55,36 @@ describe("setup drive detection", () => {
     const ordinary = path.join(root, "ORDINARY");
     await fs.mkdir(vorka);
     await fs.mkdir(ordinary);
-    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), "{}");
+    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
 
     await expect(requireDetectedUnconfiguredDrive(vorka, [root], "linux")).resolves.toBe(await fs.realpath(vorka));
     await expect(requireDetectedUnconfiguredDrive(ordinary, [root], "linux")).rejects.toThrow(/not a detected/i);
+  });
+
+  it("rejects malformed provisioning markers", async () => {
+    const root = await tempDir();
+    const vorka = path.join(root, "VORKA");
+    await fs.mkdir(vorka);
+    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), "{}");
+
+    await expect(detectVorkaDrives([root], "linux")).resolves.toEqual([]);
+  });
+
+  it("reports a partial key bundle as damaged and refuses to overwrite it", async () => {
+    const root = await tempDir();
+    const vorka = path.join(root, "VORKA");
+    await fs.mkdir(vorka);
+    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
+    await fs.writeFile(path.join(vorka, "vorka-auth.json"), "partial");
+
+    const drives = await detectVorkaDrives([root], "linux");
+    expect(drives[0]).toMatchObject({ configured: false, damaged: true });
+    await expect(requireDetectedUnconfiguredDrive(vorka, [root], "linux")).rejects.toThrow(/incomplete or damaged/i);
+  });
+
+  it("preflights free space and write access", async () => {
+    const dir = await tempDir();
+    await expect(assertDriveWritableAndSpacious(dir)).resolves.toBeUndefined();
+    await expect(assertDriveWritableAndSpacious(path.join(dir, "missing"))).rejects.toThrow(/not writable/i);
   });
 });

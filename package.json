@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Vorka companion CLI: keystore generation, EIP-712 signing, and broadcasting for VorkaVault.",
   "type": "module",
+  "main": ".native-build/native-main.cjs",
   "bin": {
     "vorka": "./dist/cli.js",
     "vorka-setup": "./dist/setup-app.js"
@@ -11,6 +12,8 @@
     "build": "tsc",
     "prepare": "tsc",
     "build:portable": "node scripts/build-portable.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "package:windows": "node scripts/build-native.mjs --package",
     "test": "vitest run",
     "cli": "tsx src/cli.ts",
     "setup": "tsx src/setup-app.ts"
@@ -22,9 +25,22 @@
     "ethers": "^6.13.4",
     "prompts": "^2.4.2"
   },
+  "build": {
+    "appId": "com.fluxpad.vorka",
+    "productName": "Vorka",
+    "asar": true,
+    "files": [".native-build/**/*", "package.json"],
+    "directories": { "output": "release" },
+    "win": {
+      "target": ["portable"],
+      "artifactName": "Vorka-Windows-${arch}.${ext}"
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/prompts": "^2.4.9",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.12",
     "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.2",

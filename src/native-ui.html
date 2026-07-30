@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<title>Vorka</title><link rel="stylesheet" href="native-ui.css"></head>
+<body><main class="shell"><div class="brand"><div class="mark">V</div><span>Vorka</span></div><section class="card">
+<h1>Set up your Vorka Key</h1><p>Your keys are created on this computer and written encrypted to the USB. Vorka never receives your passwords or private keys.</p>
+<div class="status"><div id="dot" class="dot"></div><div><strong id="statusTitle">Looking for your key…</strong><div id="statusPath" class="drive"></div></div></div>
+<div id="setup" class="hidden"><label for="drive">Detected Vorka Key</label><select id="drive"></select>
+<label for="auth">Daily-use password</label><input id="auth" type="password" autocomplete="new-password" minlength="16"><div class="hint">At least 16 characters. Used for withdrawals and everyday actions.</div>
+<label for="auth2">Confirm daily-use password</label><input id="auth2" type="password" autocomplete="new-password">
+<label for="fallback">Recovery password</label><input id="fallback" type="password" autocomplete="new-password" minlength="16"><div class="hint">Must be different. Store it separately; it freezes and recovers your vault.</div>
+<label for="fallback2">Confirm recovery password</label><input id="fallback2" type="password" autocomplete="new-password">
+<div class="warning">A plain USB signs through this computer. Only configure it on a computer you trust.</div>
+<div class="actions"><button id="create">Create encrypted keys</button><button id="refresh" class="secondary">Refresh drives</button></div></div>
+<div id="error" class="error hidden"></div><div id="success" class="success hidden"><strong>Your Vorka Key is configured.</strong><p>Operational address</p><div id="authAddress" class="address"></div><p>Recovery address</p><div id="fallbackAddress" class="address"></div><p>Back up the encrypted USB files before depositing meaningful funds. These public addresses are safe to copy.</p></div>
+</section></main><script src="native-renderer.js"></script></body></html>
