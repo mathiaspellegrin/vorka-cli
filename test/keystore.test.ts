@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,12 +10,51 @@ import {
   backupKeystores,
   ADDRESS_MANIFEST_FILENAME,
   AUTH_KEYSTORE_FILENAME,
+  FALLBACK_KEYSTORE_FILENAME,
+  generateSplitKeystores,
+  getDeviceRole,
+  generateReplacementAuth,
 } from "../src/keystore.js";
 
 const AUTH_PASSWORD = "cobalt river lantern meadow 47";
 const FALLBACK_PASSWORD = "velvet orbit cedar compass 93";
 
 describe("keystore", () => {
+  it("splits operational and recovery secrets across two devices", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vorka-split-"));
+    const primary = path.join(root, "primary");
+    const recovery = path.join(root, "recovery");
+    try {
+      await Promise.all([mkdir(primary), mkdir(recovery)]);
+      const manifest = await generateSplitKeystores(primary, recovery, AUTH_PASSWORD, FALLBACK_PASSWORD);
+      expect(await getDeviceRole(primary)).toBe("primary");
+      expect(await getDeviceRole(recovery)).toBe("recovery");
+      await expect(readFile(path.join(primary, FALLBACK_KEYSTORE_FILENAME))).rejects.toThrow();
+      await expect(readFile(path.join(recovery, AUTH_KEYSTORE_FILENAME))).rejects.toThrow();
+      expect((await readAddressManifest(primary)).generationId).toBe(manifest.generationId);
+      expect((await readAddressManifest(recovery)).generationId).toBe(manifest.generationId);
+      expect((await unlockAuthKeystore(primary, AUTH_PASSWORD)).address).toBe(manifest.authAddress);
+      expect((await unlockFallbackKeystore(recovery, FALLBACK_PASSWORD)).address).toBe(manifest.fallbackAddress);
+      await expect(generateSplitKeystores(primary, primary, AUTH_PASSWORD, FALLBACK_PASSWORD)).rejects.toThrow(/different USB/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a replacement primary while retaining the recovery secret", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vorka-replace-"));
+    const primary = path.join(root, "primary"), recovery = path.join(root, "recovery"), replacement = path.join(root, "replacement");
+    try {
+      await Promise.all([mkdir(primary), mkdir(recovery), mkdir(replacement)]);
+      const original = await generateSplitKeystores(primary, recovery, AUTH_PASSWORD, FALLBACK_PASSWORD);
+      const next = await generateReplacementAuth(replacement, recovery, "granite-signal-ember-forest-9274", FALLBACK_PASSWORD);
+      expect(next.authAddress).not.toBe(original.authAddress);
+      expect(next.fallbackAddress).toBe(original.fallbackAddress);
+      expect((await readAddressManifest(recovery)).generationId).toBe(next.generationId);
+      expect((await unlockFallbackKeystore(recovery, FALLBACK_PASSWORD)).address).toBe(original.fallbackAddress);
+      expect(await getDeviceRole(replacement)).toBe("primary");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("round-trips through encrypt/decrypt with each key's own password", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "vorka-"));
     try {

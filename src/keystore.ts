@@ -18,12 +18,13 @@ export const AUTH_KEYSTORE_FILENAME = "vorka-auth.json";
 export const FALLBACK_KEYSTORE_FILENAME = "vorka-fallback.json";
 export const ADDRESS_MANIFEST_FILENAME = "vorka-addresses.json";
 export const KEYSTORE_BUNDLE_FORMAT = "vorka-keystore-bundle-v1";
+export const SPLIT_KEYSTORE_BUNDLE_FORMAT = "vorka-split-keystore-bundle-v2";
 const passwordEstimator = new ZxcvbnFactory({ dictionary, graphs: adjacencyGraphs });
 
 type AnyWallet = Wallet | HDNodeWallet;
 
 interface BundlePayload {
-  format: typeof KEYSTORE_BUNDLE_FORMAT;
+  format: typeof KEYSTORE_BUNDLE_FORMAT | typeof SPLIT_KEYSTORE_BUNDLE_FORMAT;
   generationId: string;
   authAddress: string;
   fallbackAddress: string;
@@ -81,7 +82,9 @@ function parseManifest(raw: string): AddressManifest {
   for (const field of stringFields) {
     if (typeof value[field] !== "string") throw new Error(`Invalid keystore bundle field: ${field}`);
   }
-  if (value.format !== KEYSTORE_BUNDLE_FORMAT) throw new Error("Unsupported keystore bundle format");
+  if (value.format !== KEYSTORE_BUNDLE_FORMAT && value.format !== SPLIT_KEYSTORE_BUNDLE_FORMAT) {
+    throw new Error("Unsupported keystore bundle format");
+  }
 
   const manifest = value as unknown as AddressManifest;
   const normalized: AddressManifest = {
@@ -129,6 +132,134 @@ async function assertTargetsAbsent(dir: string): Promise<void> {
 async function publishExclusive(tempPath: string, finalPath: string): Promise<void> {
   await fs.copyFile(tempPath, finalPath, fsConstants.COPYFILE_EXCL);
   await fs.chmod(finalPath, 0o600);
+}
+
+async function targetAbsent(dir: string, filename: string): Promise<void> {
+  try {
+    await fs.lstat(path.join(dir, filename));
+    throw new Error(`Refusing to overwrite existing keystore bundle file: ${filename}`);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Generate operational and recovery keys onto two different devices. */
+export async function generateSplitKeystores(
+  authDir: string,
+  fallbackDir: string,
+  authPassword: string,
+  fallbackPassword: string,
+): Promise<AddressManifest> {
+  validatePassword(authPassword, "auth");
+  validatePassword(fallbackPassword, "fallback");
+  if (authPassword === fallbackPassword) throw new Error("Auth and fallback passwords must differ");
+  const [authReal, fallbackReal] = await Promise.all([fs.realpath(authDir), fs.realpath(fallbackDir)]);
+  if (authReal === fallbackReal) throw new Error("Primary and recovery keys must use two different USB drives");
+  await Promise.all([
+    targetAbsent(authReal, AUTH_KEYSTORE_FILENAME),
+    targetAbsent(authReal, FALLBACK_KEYSTORE_FILENAME),
+    targetAbsent(authReal, ADDRESS_MANIFEST_FILENAME),
+    targetAbsent(fallbackReal, AUTH_KEYSTORE_FILENAME),
+    targetAbsent(fallbackReal, FALLBACK_KEYSTORE_FILENAME),
+    targetAbsent(fallbackReal, ADDRESS_MANIFEST_FILENAME),
+  ]);
+
+  const auth = Wallet.createRandom();
+  const fallback = Wallet.createRandom();
+  const [authJson, fallbackJson] = await Promise.all([
+    auth.encrypt(authPassword),
+    fallback.encrypt(fallbackPassword),
+  ]);
+  const payload: BundlePayload = {
+    format: SPLIT_KEYSTORE_BUNDLE_FORMAT,
+    generationId: hexlify(randomBytes(32)),
+    authAddress: auth.address,
+    fallbackAddress: fallback.address,
+    authKeystoreHash: hashKeystore(authJson),
+    fallbackKeystoreHash: hashKeystore(fallbackJson),
+  };
+  const digest = payloadDigest(payload);
+  const manifest: AddressManifest = {
+    ...payload,
+    authSignature: await auth.signMessage(digest),
+    fallbackSignature: await fallback.signMessage(digest),
+  };
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  const [authStage, fallbackStage] = await Promise.all([
+    fs.mkdtemp(path.join(authReal, ".vorka-primary-")),
+    fs.mkdtemp(path.join(fallbackReal, ".vorka-recovery-")),
+  ]);
+  try {
+    await Promise.all([
+      writeSyncedFile(path.join(authStage, AUTH_KEYSTORE_FILENAME), authJson),
+      writeSyncedFile(path.join(authStage, ADDRESS_MANIFEST_FILENAME), manifestJson),
+      writeSyncedFile(path.join(fallbackStage, FALLBACK_KEYSTORE_FILENAME), fallbackJson),
+      writeSyncedFile(path.join(fallbackStage, ADDRESS_MANIFEST_FILENAME), manifestJson),
+    ]);
+    await publishExclusive(path.join(authStage, AUTH_KEYSTORE_FILENAME), path.join(authReal, AUTH_KEYSTORE_FILENAME));
+    await publishExclusive(path.join(fallbackStage, FALLBACK_KEYSTORE_FILENAME), path.join(fallbackReal, FALLBACK_KEYSTORE_FILENAME));
+    // Each manifest is a commit marker. A crash before both are published is safely reported as damaged.
+    await publishExclusive(path.join(authStage, ADDRESS_MANIFEST_FILENAME), path.join(authReal, ADDRESS_MANIFEST_FILENAME));
+    await publishExclusive(path.join(fallbackStage, ADDRESS_MANIFEST_FILENAME), path.join(fallbackReal, ADDRESS_MANIFEST_FILENAME));
+  } finally {
+    await Promise.all([
+      fs.rm(authStage, { recursive: true, force: true }),
+      fs.rm(fallbackStage, { recursive: true, force: true }),
+    ]);
+  }
+  return manifest;
+}
+
+/** Replace a lost primary device while retaining the existing recovery key. */
+export async function generateReplacementAuth(
+  newAuthDir: string,
+  fallbackDir: string,
+  newAuthPassword: string,
+  fallbackPassword: string,
+): Promise<AddressManifest> {
+  validatePassword(newAuthPassword, "auth");
+  const recoveryManifest = await readAddressManifest(fallbackDir);
+  if (await getDeviceRole(fallbackDir) !== "recovery") throw new Error("Select the dedicated recovery Vorka key");
+  const fallback = await unlockFallbackKeystore(fallbackDir, fallbackPassword);
+  const newAuthReal = await fs.realpath(newAuthDir);
+  const fallbackReal = await fs.realpath(fallbackDir);
+  if (newAuthReal === fallbackReal) throw new Error("The replacement primary must be a different USB drive");
+  await Promise.all([
+    targetAbsent(newAuthReal, AUTH_KEYSTORE_FILENAME), targetAbsent(newAuthReal, FALLBACK_KEYSTORE_FILENAME),
+    targetAbsent(newAuthReal, ADDRESS_MANIFEST_FILENAME),
+  ]);
+  const auth = Wallet.createRandom();
+  const [authJson, fallbackJson] = await Promise.all([
+    auth.encrypt(newAuthPassword),
+    fs.readFile(path.join(fallbackReal, FALLBACK_KEYSTORE_FILENAME), "utf8"),
+  ]);
+  const payload: BundlePayload = {
+    format: SPLIT_KEYSTORE_BUNDLE_FORMAT,
+    generationId: hexlify(randomBytes(32)),
+    authAddress: auth.address,
+    fallbackAddress: recoveryManifest.fallbackAddress,
+    authKeystoreHash: hashKeystore(authJson),
+    fallbackKeystoreHash: hashKeystore(fallbackJson),
+  };
+  const digest = payloadDigest(payload);
+  const manifest: AddressManifest = { ...payload, authSignature: await auth.signMessage(digest), fallbackSignature: await fallback.signMessage(digest) };
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  const stage = await fs.mkdtemp(path.join(newAuthReal, ".vorka-replacement-"));
+  const recoveryManifestTemp = path.join(fallbackReal, `.vorka-addresses-${Date.now()}.tmp`);
+  try {
+    await Promise.all([
+      writeSyncedFile(path.join(stage, AUTH_KEYSTORE_FILENAME), authJson),
+      writeSyncedFile(path.join(stage, ADDRESS_MANIFEST_FILENAME), manifestJson),
+      writeSyncedFile(recoveryManifestTemp, manifestJson),
+    ]);
+    await publishExclusive(path.join(stage, AUTH_KEYSTORE_FILENAME), path.join(newAuthReal, AUTH_KEYSTORE_FILENAME));
+    await publishExclusive(path.join(stage, ADDRESS_MANIFEST_FILENAME), path.join(newAuthReal, ADDRESS_MANIFEST_FILENAME));
+    await fs.rename(recoveryManifestTemp, path.join(fallbackReal, ADDRESS_MANIFEST_FILENAME));
+  } finally {
+    await fs.rm(stage, { recursive: true, force: true });
+    await fs.rm(recoveryManifestTemp, { force: true });
+  }
+  return manifest;
 }
 
 /** Generates a signed, versioned bundle and never overwrites existing key material. */
@@ -191,7 +322,7 @@ async function readManifestOnly(dir: string): Promise<AddressManifest> {
   return parseManifest(raw);
 }
 
-async function verifyRoleFile(dir: string, role: "auth" | "fallback"): Promise<{ manifest: AddressManifest; json: string }> {
+export async function verifyRoleFile(dir: string, role: "auth" | "fallback"): Promise<{ manifest: AddressManifest; json: string }> {
   const manifest = await readManifestOnly(dir);
   const filename = role === "auth" ? AUTH_KEYSTORE_FILENAME : FALLBACK_KEYSTORE_FILENAME;
   const expectedHash = role === "auth" ? manifest.authKeystoreHash : manifest.fallbackKeystoreHash;
@@ -200,11 +331,31 @@ async function verifyRoleFile(dir: string, role: "auth" | "fallback"): Promise<{
   return { manifest, json };
 }
 
-/** Verifies both encrypted files and signatures without decrypting either key. */
+export async function getDeviceRole(dir: string): Promise<"primary" | "recovery" | "legacy"> {
+  const [authPresent, fallbackPresent] = await Promise.all([
+    fs.access(path.join(dir, AUTH_KEYSTORE_FILENAME)).then(() => true).catch(() => false),
+    fs.access(path.join(dir, FALLBACK_KEYSTORE_FILENAME)).then(() => true).catch(() => false),
+  ]);
+  if (authPresent && fallbackPresent) return "legacy";
+  if (authPresent) return "primary";
+  if (fallbackPresent) return "recovery";
+  throw new Error("No Vorka keystore exists on this device");
+}
+
+/** Verifies the signed manifest and every role file present on this device. */
 export async function readAddressManifest(dir: string): Promise<AddressManifest> {
-  const [auth, fallback] = await Promise.all([verifyRoleFile(dir, "auth"), verifyRoleFile(dir, "fallback")]);
-  if (auth.manifest.generationId !== fallback.manifest.generationId) throw new Error("Keystore bundle mismatch");
-  return auth.manifest;
+  const manifest = await readManifestOnly(dir);
+  const role = await getDeviceRole(dir);
+  if (manifest.format === KEYSTORE_BUNDLE_FORMAT && role !== "legacy") {
+    throw new Error("Legacy keystore bundle is incomplete");
+  }
+  if (role === "primary") await verifyRoleFile(dir, "auth");
+  else if (role === "recovery") await verifyRoleFile(dir, "fallback");
+  else {
+    const [auth, fallback] = await Promise.all([verifyRoleFile(dir, "auth"), verifyRoleFile(dir, "fallback")]);
+    if (auth.manifest.generationId !== fallback.manifest.generationId) throw new Error("Keystore bundle mismatch");
+  }
+  return manifest;
 }
 
 export async function unlockAuthKeystore(dir: string, password: string): Promise<AnyWallet> {
@@ -224,6 +375,7 @@ export async function unlockFallbackKeystore(dir: string, password: string): Pro
 /** Creates a verified backup at a new destination without overwriting existing data. */
 export async function backupKeystores(sourceDir: string, destDir: string): Promise<void> {
   await readAddressManifest(sourceDir);
+  const role = await getDeviceRole(sourceDir);
   const parent = path.dirname(destDir);
   await fs.mkdir(parent, { recursive: true });
   try {
@@ -235,7 +387,10 @@ export async function backupKeystores(sourceDir: string, destDir: string): Promi
 
   const stageDir = await fs.mkdtemp(path.join(parent, ".vorka-backup-"));
   try {
-    for (const filename of [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME, ADDRESS_MANIFEST_FILENAME]) {
+    const roleFiles = role === "primary" ? [AUTH_KEYSTORE_FILENAME]
+      : role === "recovery" ? [FALLBACK_KEYSTORE_FILENAME]
+      : [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME];
+    for (const filename of [...roleFiles, ADDRESS_MANIFEST_FILENAME]) {
       await fs.copyFile(path.join(sourceDir, filename), path.join(stageDir, filename), fsConstants.COPYFILE_EXCL);
       await fs.chmod(path.join(stageDir, filename), 0o600);
     }

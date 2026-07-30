@@ -1,107 +1,35 @@
-interface Drive {
-  path: string;
-  label: string;
-  configured: boolean;
-  damaged: boolean;
-  problem?: string;
-}
-
+interface Drive { path:string;label:string;configured:boolean;damaged:boolean;problem?:string;role?:"primary"|"recovery"|"legacy" }
+interface ChainRequest { rpc:string;chainId:number;vaultAddress:string }
 interface VorkaApi {
-  listDrives(): Promise<Drive[]>;
-  generate(request: { drivePath: string; authPassword: string; fallbackPassword: string }): Promise<{
-    authAddress: string;
-    fallbackAddress: string;
-  }>;
+  listDrives():Promise<Drive[]>;generatePassword():Promise<string>;
+  generate(request:{primaryPath:string;recoveryPath:string;authPassword:string;fallbackPassword:string}):Promise<{authAddress:string;fallbackAddress:string}>;
+  vaultOverview(request:ChainRequest):Promise<Record<string,string|boolean>>;
+  createVault(request:{rpc:string;chainId:number;primaryPath:string;factoryAddress:string;beneficiary:string;password:string}):Promise<{vaultAddress:string}>;
+  withdrawNative(request:ChainRequest&{primaryPath:string;amount:string;password:string}):Promise<{txHash:string}>;
+  freezeVault(request:ChainRequest&{recoveryPath:string;recoveryPassword:string}):Promise<{txHash?:string;alreadyFrozen:boolean}>;
+  replacePrimary(request:ChainRequest&{recoveryPath:string;replacementPath:string;recoveryPassword:string;newPrimaryPassword:string}):Promise<{txHash:string;newAuthAddress:string}>;
 }
-
-declare global { interface Window { vorka: VorkaApi } }
-
-const element = <T extends HTMLElement>(id: string): T => {
-  const value = document.getElementById(id);
-  if (!value) throw new Error(`Missing UI element: ${id}`);
-  return value as T;
-};
-
-const setup = element("setup");
-const errorBox = element("error");
-const success = element("success");
-const statusTitle = element("statusTitle");
-const statusPath = element("statusPath");
-const dot = element("dot");
-const driveSelect = element<HTMLSelectElement>("drive");
-const createButton = element<HTMLButtonElement>("create");
-
-function showError(error: unknown): void {
-  errorBox.textContent = error instanceof Error ? error.message : String(error);
-  errorBox.classList.remove("hidden");
-}
-
-async function refresh(): Promise<void> {
-  errorBox.classList.add("hidden");
-  try {
-    const drives = await window.vorka.listDrives();
-    const available = drives.filter((drive) => !drive.configured && !drive.damaged);
-    driveSelect.replaceChildren(...available.map((drive) => {
-      const option = document.createElement("option");
-      option.value = drive.path;
-      option.textContent = `${drive.label} — ${drive.path}`;
-      return option;
-    }));
-    if (available.length > 0) {
-      dot.classList.add("ok");
-      statusTitle.textContent = "Vorka Key detected";
-      statusPath.textContent = available[0].path;
-      setup.classList.remove("hidden");
-      return;
-    }
-    const damaged = drives.find((drive) => drive.damaged);
-    const configured = drives.find((drive) => drive.configured);
-    dot.classList.toggle("ok", Boolean(configured) && !damaged);
-    statusTitle.textContent = damaged
-      ? "This Vorka Key needs attention"
-      : configured ? "This Vorka Key is already configured" : "No unconfigured Vorka Key detected";
-    statusPath.textContent = damaged
-      ? `${damaged.problem ?? "The key bundle is damaged"} — ${damaged.path}`
-      : configured ? configured.path : "Plug in a valid provisioned Vorka USB, then refresh.";
-    setup.classList.add("hidden");
-  } catch (error) {
-    showError(error);
-  }
-}
-
-element("refresh").addEventListener("click", () => void refresh());
-driveSelect.addEventListener("change", () => { statusPath.textContent = driveSelect.value; });
-createButton.addEventListener("click", async () => {
-  errorBox.classList.add("hidden");
-  const auth = element<HTMLInputElement>("auth");
-  const auth2 = element<HTMLInputElement>("auth2");
-  const fallback = element<HTMLInputElement>("fallback");
-  const fallback2 = element<HTMLInputElement>("fallback2");
-  if (auth.value !== auth2.value) return showError("Daily-use passwords do not match.");
-  if (fallback.value !== fallback2.value) return showError("Recovery passwords do not match.");
-  if (auth.value === fallback.value) return showError("The two passwords must be different.");
-  createButton.disabled = true;
-  createButton.textContent = "Creating keys…";
-  try {
-    const result = await window.vorka.generate({
-      drivePath: driveSelect.value,
-      authPassword: auth.value,
-      fallbackPassword: fallback.value,
-    });
-    auth.value = auth2.value = fallback.value = fallback2.value = "";
-    setup.classList.add("hidden");
-    success.classList.remove("hidden");
-    element("authAddress").textContent = result.authAddress;
-    element("fallbackAddress").textContent = result.fallbackAddress;
-    statusTitle.textContent = "Configuration complete";
-  } catch (error) {
-    showError(error);
-    createButton.disabled = false;
-    createButton.textContent = "Create encrypted keys";
-  }
-});
-
-void refresh();
-window.setInterval(() => { if (success.classList.contains("hidden")) void refresh(); }, 4000);
-
-export {};
+declare global{interface Window{vorka:VorkaApi}}
+const el=<T extends HTMLElement>(id:string):T=>{const x=document.getElementById(id);if(!x)throw new Error(`Missing UI element: ${id}`);return x as T};
+const val=(id:string)=>el<HTMLInputElement|HTMLSelectElement>(id).value.trim();
+const errorBox=el("error"),infoBox=el("info");let drives:Drive[]=[];
+function message(box:HTMLElement,text:string){box.textContent=text;box.classList.remove("hidden")}
+function clearMessages(){errorBox.classList.add("hidden");infoBox.classList.add("hidden")}
+function friendly(error:unknown):string{const raw=error instanceof Error?error.message:String(error);const text=raw.replace(/^Error invoking remote method '[^']+': Error:\s*/,"");if(/network|fetch|ECONN|SERVER_ERROR/i.test(text))return `RPC connection failed. Check the URL, network and chain ID. (${text})`;if(/password|decrypt/i.test(text))return `Password rejected. Check that the correct Vorka device is selected. (${text})`;if(/writable|EPERM|EACCES|read-only/i.test(text))return `The USB cannot be written. Check write protection and reconnect it. (${text})`;return text}
+function fail(error:unknown){message(errorBox,friendly(error))}
+function options(select:HTMLSelectElement,items:Drive[],placeholder:string){const previous=select.value;select.replaceChildren();const empty=document.createElement("option");empty.value="";empty.textContent=placeholder;select.append(empty,...items.map(d=>{const o=document.createElement("option");o.value=d.path;o.textContent=`${d.label} — ${d.path}`;return o}));if(items.some(d=>d.path===previous))select.value=previous}
+async function refresh(silent=false){if(!silent)clearMessages();try{drives=await window.vorka.listDrives();const fresh=drives.filter(d=>!d.configured&&!d.damaged),configuredPrimary=drives.filter(d=>d.configured&&d.role==="primary");options(el("primaryDrive"),fresh,"Select primary USB");options(el("recoveryDrive"),fresh,"Select recovery USB");options(el("replacementDrive"),[...fresh,...configuredPrimary],"Select fresh or prepared replacement USB");options(el("coreDrive"),drives.filter(d=>d.configured&&(d.role==="primary"||d.role==="legacy")),"Select configured primary key");options(el("recoveryCoreDrive"),drives.filter(d=>d.configured&&d.role==="recovery"),"Select recovery key");const damaged=drives.find(d=>d.damaged);if(damaged)fail(`${damaged.problem??"Damaged Vorka bundle"} — ${damaged.path}`);else if(!fresh.length&&!drives.some(d=>d.configured))message(infoBox,"Connect two provisioned Vorka USB devices to begin.")}catch(e){fail(e)}}
+document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach(button=>button.addEventListener("click",()=>{document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("active"));button.classList.add("active");for(const id of ["setupPanel","corePanel"])el(id).classList.toggle("hidden",id!==button.dataset.panel)}));
+el("refresh").addEventListener("click",()=>void refresh());
+document.querySelectorAll<HTMLButtonElement>("[data-generate]").forEach(button=>button.addEventListener("click",async()=>{try{const id=button.dataset.generate!;const password=await window.vorka.generatePassword();el<HTMLInputElement>(id).type="text";el<HTMLInputElement>(`${id}2`).type="text";el<HTMLInputElement>(id).value=password;el<HTMLInputElement>(`${id}2`).value=password;message(infoBox,"A strong random password was generated. Store it separately before continuing.")}catch(e){fail(e)}}));
+el<HTMLButtonElement>("createKeys").addEventListener("click",async()=>{clearMessages();const primaryPath=val("primaryDrive"),recoveryPath=val("recoveryDrive"),auth=val("auth"),auth2=val("auth2"),fallback=val("fallback"),fallback2=val("fallback2");if(!primaryPath||!recoveryPath)return fail("Select both provisioned USB devices.");if(primaryPath===recoveryPath)return fail("Primary and recovery must be two different USB devices.");if(auth!==auth2)return fail("Primary passwords do not match.");if(fallback!==fallback2)return fail("Recovery passwords do not match.");if(auth===fallback)return fail("Primary and recovery passwords must differ.");const button=el<HTMLButtonElement>("createKeys");button.disabled=true;button.textContent="CREATING ENCRYPTED KEYS…";try{const r=await window.vorka.generate({primaryPath,recoveryPath,authPassword:auth,fallbackPassword:fallback});el("authAddress").textContent=r.authAddress;el("fallbackAddress").textContent=r.fallbackAddress;el("setupSuccess").classList.remove("hidden");for(const id of ["auth","auth2","fallback","fallback2"])el<HTMLInputElement>(id).value="";message(infoBox,"Both devices are configured. Eject the recovery key and store it separately.");await refresh()}catch(e){fail(e)}finally{button.disabled=false;button.textContent="Create both encrypted keys"}});
+function chainRequest():ChainRequest{const chainId=Number(val("chainId"));if(!Number.isSafeInteger(chainId)||chainId<=0)throw new Error("Enter a valid positive chain ID.");return{rpc:val("rpc"),chainId,vaultAddress:val("vaultAddress")}}
+function saveSettings(){localStorage.setItem("vorka-core-network",JSON.stringify({rpc:val("rpc"),chainId:val("chainId"),vaultAddress:val("vaultAddress"),factoryAddress:val("factoryAddress")}));message(infoBox,"Network settings saved locally on this computer.")}
+function loadSettings(){try{const s=JSON.parse(localStorage.getItem("vorka-core-network")??"{}");for(const id of ["rpc","chainId","vaultAddress","factoryAddress"])if(s[id])el<HTMLInputElement>(id).value=String(s[id])}catch{localStorage.removeItem("vorka-core-network")}}
+el("saveNetwork").addEventListener("click",()=>{clearMessages();saveSettings()});
+el("loadVault").addEventListener("click",async()=>{clearMessages();try{const r=await window.vorka.vaultOverview(chainRequest());el("nativeBalance").textContent=String(r.nativeBalance);el("owner").textContent=String(r.owner);el("vaultAuth").textContent=String(r.authAddress);el("vaultFallback").textContent=String(r.fallbackAddress);el("frozen").textContent=r.frozen?"FROZEN":"ACTIVE";el("vaultCard").classList.remove("hidden");saveSettings()}catch(e){fail(e)}});
+el("createVault").addEventListener("click",async()=>{clearMessages();try{const base=chainRequest();const primaryPath=val("coreDrive");if(!primaryPath)throw new Error("Select the configured primary Vorka key.");const r=await window.vorka.createVault({rpc:base.rpc,chainId:base.chainId,primaryPath,factoryAddress:val("factoryAddress"),beneficiary:val("beneficiary"),password:val("createVaultPassword")});el<HTMLInputElement>("vaultAddress").value=r.vaultAddress;el<HTMLInputElement>("createVaultPassword").value="";saveSettings();message(infoBox,`Vault created: ${r.vaultAddress}`)}catch(e){fail(e)}});
+el("withdraw").addEventListener("click",async()=>{clearMessages();try{const base=chainRequest();const primaryPath=val("coreDrive");if(!primaryPath)throw new Error("Select the configured primary Vorka key.");if(!confirm(`Withdraw ${val("withdrawAmount")} native units to the Vault beneficiary?`))return;const r=await window.vorka.withdrawNative({...base,primaryPath,amount:val("withdrawAmount"),password:val("withdrawPassword")});el<HTMLInputElement>("withdrawPassword").value="";message(infoBox,`Withdrawal broadcast: ${r.txHash}`)}catch(e){fail(e)}});
+el("freezeVault").addEventListener("click",async()=>{clearMessages();try{const recoveryPath=val("recoveryCoreDrive");if(!recoveryPath)throw new Error("Select the dedicated recovery Vorka key.");if(!confirm("Freeze this Vault immediately? Daily operations will stop."))return;const r=await window.vorka.freezeVault({...chainRequest(),recoveryPath,recoveryPassword:val("recoveryPassword")});message(infoBox,r.alreadyFrozen?"Vault is already frozen.":`Vault frozen: ${r.txHash}`)}catch(e){fail(e)}});
+el("replacePrimary").addEventListener("click",async()=>{clearMessages();try{const recoveryPath=val("recoveryCoreDrive"),replacementPath=val("replacementDrive"),password=val("newPrimaryPassword");if(!recoveryPath||!replacementPath)throw new Error("Select the recovery key and a fresh replacement USB.");if(password!==val("newPrimaryPassword2"))throw new Error("New primary passwords do not match.");if(!confirm("Freeze the Vault, create a replacement primary key, and rotate authorization?"))return;const r=await window.vorka.replacePrimary({...chainRequest(),recoveryPath,replacementPath,recoveryPassword:val("recoveryPassword"),newPrimaryPassword:password});message(infoBox,`Primary key replaced: ${r.newAuthAddress}. Transaction: ${r.txHash}`);await refresh()}catch(e){fail(e)}});
+loadSettings();void refresh();window.setInterval(()=>void refresh(true),5000);export{};

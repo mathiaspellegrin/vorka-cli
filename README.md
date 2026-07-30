@@ -22,8 +22,16 @@ npm run build
 For customers, launch `START VORKA.exe` from the USB. The Windows-first client
 opens in its own native Electron window—no browser, localhost server, Node.js
 installation, or browser extension is involved. It detects the provisioned
-drive and creates the encrypted auth and fallback keystores only after the
-customer chooses their passwords. macOS comes next and Linux later.
+drives and creates a split signed bundle: the primary USB receives only the
+operational keystore and the recovery USB receives only the fallback keystore.
+The app also provides local RPC settings, Vault creation/state, native
+withdrawal to the beneficiary, emergency freeze, and primary-device recovery.
+macOS comes next and Linux later.
+
+Vorka Core does not require a Vorka backend. In this local-only build, the
+primary or recovery signer also pays transaction gas, so the corresponding
+address must hold enough native currency. RPC URL, chain ID, Vault address and
+factory address are saved only in the local Electron profile.
 
 The CLI remains the open-source/manual interface:
 

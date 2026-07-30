@@ -5,6 +5,7 @@ import {
   ADDRESS_MANIFEST_FILENAME,
   AUTH_KEYSTORE_FILENAME,
   FALLBACK_KEYSTORE_FILENAME,
+  getDeviceRole,
   readAddressManifest,
 } from "./keystore.js";
 
@@ -16,6 +17,7 @@ export interface DetectedVorkaDrive {
   configured: boolean;
   damaged: boolean;
   problem?: string;
+  role?: "primary" | "recovery" | "legacy";
   authAddress?: string;
   fallbackAddress?: string;
 }
@@ -102,6 +104,7 @@ export async function detectVorkaDrives(
         try {
           const manifest = await readAddressManifest(realPath);
           drive.configured = true;
+          drive.role = await getDeviceRole(realPath);
           drive.authAddress = manifest.authAddress;
           drive.fallbackAddress = manifest.fallbackAddress;
         } catch {
