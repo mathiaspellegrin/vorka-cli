@@ -39,6 +39,7 @@ function createWindow(): void {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.maximize();
   void window.loadFile(path.join(__dirname, "native-ui.html"));
 }
 

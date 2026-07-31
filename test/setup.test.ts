@@ -16,7 +16,7 @@ const provisioningManifest = JSON.stringify({
   role: "primary",
   provisionedAt: "2026-07-30T00:00:00.000Z",
   appVersion: "0.1.0",
-  portableApps: ["1 - WINDOWS/START VORKA.exe"],
+  portableApps: ["VORKA.exe"],
 });
 
 const temporaryDirectories: string[] = [];

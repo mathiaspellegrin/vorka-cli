@@ -27,10 +27,12 @@ describe("keystore", () => {
     const recovery = path.join(root, "recovery");
     try {
       await Promise.all([mkdir(primary), mkdir(recovery)]);
-      const manifest = await generateSplitKeystores(primary, recovery, AUTH_PASSWORD, FALLBACK_PASSWORD);
+      const manifest = await generateSplitKeystores(primary, recovery, AUTH_PASSWORD, AUTH_PASSWORD);
       expect(await getDeviceRole(primary)).toBe("primary");
       expect(await getDeviceRole(recovery)).toBe("recovery");
-      await expect(readFile(path.join(primary, VORKA_DATA_DIRECTORY, AUTH_KEYSTORE_FILENAME))).resolves.toBeTruthy();
+      const encryptedAuth = JSON.parse(await readFile(path.join(primary, VORKA_DATA_DIRECTORY, AUTH_KEYSTORE_FILENAME), "utf8"));
+      expect(encryptedAuth.Crypto?.kdf === "scrypt" || encryptedAuth.crypto?.kdf === "scrypt").toBe(true);
+      expect(Number(encryptedAuth.Crypto?.kdfparams?.n ?? encryptedAuth.crypto?.kdfparams?.n)).toBeGreaterThanOrEqual(131072);
       await expect(readFile(path.join(recovery, VORKA_DATA_DIRECTORY, FALLBACK_KEYSTORE_FILENAME))).resolves.toBeTruthy();
       await expect(readFile(path.join(primary, AUTH_KEYSTORE_FILENAME))).rejects.toThrow();
       await expect(readFile(path.join(primary, FALLBACK_KEYSTORE_FILENAME))).rejects.toThrow();
@@ -38,8 +40,8 @@ describe("keystore", () => {
       expect((await readAddressManifest(primary)).generationId).toBe(manifest.generationId);
       expect((await readAddressManifest(recovery)).generationId).toBe(manifest.generationId);
       expect((await unlockAuthKeystore(primary, AUTH_PASSWORD)).address).toBe(manifest.authAddress);
-      expect((await unlockFallbackKeystore(recovery, FALLBACK_PASSWORD)).address).toBe(manifest.fallbackAddress);
-      await expect(generateSplitKeystores(primary, primary, AUTH_PASSWORD, FALLBACK_PASSWORD)).rejects.toThrow(/different USB/);
+      expect((await unlockFallbackKeystore(recovery, AUTH_PASSWORD)).address).toBe(manifest.fallbackAddress);
+      await expect(generateSplitKeystores(primary, primary, AUTH_PASSWORD, AUTH_PASSWORD)).rejects.toThrow(/different USB/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

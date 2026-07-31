@@ -23,6 +23,7 @@ export interface DetectedVorkaDrive {
   provisionedRole?: "primary" | "recovery";
   authAddress?: string;
   fallbackAddress?: string;
+  generationId?: string;
 }
 
 const MINIMUM_FREE_BYTES = 5 * 1024 * 1024;
@@ -116,6 +117,7 @@ export async function detectVorkaDrives(
           drive.role = await getDeviceRole(realPath);
           drive.authAddress = manifest.authAddress;
           drive.fallbackAddress = manifest.fallbackAddress;
+          drive.generationId = manifest.generationId;
         } catch {
           drive.damaged = true;
           drive.problem = "The encrypted key bundle is incomplete or damaged; setup will not overwrite it";

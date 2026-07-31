@@ -19,7 +19,7 @@ npm run build
 
 ## Commands
 
-For customers, launch `START VORKA.exe` from the USB. The Windows-first client
+For customers, launch `VORKA.exe` from either USB. The Windows-first client
 opens in its own native Electron window—no browser, localhost server, Node.js
 installation, or browser extension is involved. It detects the provisioned
 drives and creates a split signed bundle: the primary USB receives only the

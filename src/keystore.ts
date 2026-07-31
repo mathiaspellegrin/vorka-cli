@@ -183,7 +183,6 @@ export async function generateSplitKeystores(
 ): Promise<AddressManifest> {
   validatePassword(authPassword, "auth");
   validatePassword(fallbackPassword, "fallback");
-  if (authPassword === fallbackPassword) throw new Error("Auth and fallback passwords must differ");
   const [authReal, fallbackReal] = await Promise.all([fs.realpath(authDir), fs.realpath(fallbackDir)]);
   if (authReal === fallbackReal) throw new Error("Primary and recovery keys must use two different USB drives");
   await Promise.all([
