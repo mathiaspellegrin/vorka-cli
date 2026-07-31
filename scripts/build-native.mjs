@@ -14,6 +14,8 @@ execFileSync(esbuild, ["src/native-preload.ts", ...common, `--outfile=${path.joi
 execFileSync(esbuild, ["src/native-renderer.ts", "--bundle", "--platform=browser", "--format=iife", `--outfile=${path.join(output, "native-renderer.js")}`], { stdio: "inherit", shell: process.platform === "win32" });
 await copyFile(path.join(root, "src", "native-ui.html"), path.join(output, "native-ui.html"));
 await copyFile(path.join(root, "src", "native-ui.css"), path.join(output, "native-ui.css"));
+await copyFile(path.join(root, "assets", "vorka-mark.png"), path.join(output, "vorka-mark.png"));
+await copyFile(path.join(root, "assets", "vorka.ico"), path.join(output, "vorka.ico"));
 if (process.argv.includes("--package")) {
   const builder = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "electron-builder.cmd" : "electron-builder");
   execFileSync(builder, ["--win", "portable", "--x64"], { stdio: "inherit", shell: process.platform === "win32" });

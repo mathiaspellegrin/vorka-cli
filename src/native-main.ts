@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { ZeroAddress, formatEther, getAddress, parseEther } from "ethers";
-import { generateReplacementAuth, generateSplitKeystores, readAddressManifest, unlockAuthKeystore, unlockFallbackKeystore } from "./keystore.js";
+import { generateReplacementAuth, generateSplitKeystores, protectVorkaDevice, readAddressManifest, unlockAuthKeystore, unlockFallbackKeystore } from "./keystore.js";
 import { detectVorkaDrives, requireDetectedUnconfiguredDrive } from "./setup.js";
 import {
   createVault,
@@ -24,9 +24,10 @@ function createWindow(): void {
     height: 780,
     minWidth: 620,
     minHeight: 640,
-    show: false,
+    show: true,
     title: "Vorka",
-    backgroundColor: "#080b10",
+    icon: path.join(__dirname, "vorka.ico"),
+    backgroundColor: "#e7e2d6",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "native-preload.cjs"),
@@ -39,7 +40,6 @@ function createWindow(): void {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   void window.loadFile(path.join(__dirname, "native-ui.html"));
-  window.once("ready-to-show", () => window.show());
 }
 
 function objectBody(body: unknown): Record<string, unknown> {
@@ -59,7 +59,11 @@ function chainFrom(value: Record<string, unknown>): ChainConfig {
   return { rpc, chainId: Number(chainId) };
 }
 
-ipcMain.handle("vorka:list-drives", () => detectVorkaDrives());
+ipcMain.handle("vorka:list-drives", async () => {
+  const drives = await detectVorkaDrives();
+  await Promise.all(drives.map((drive) => protectVorkaDevice(drive.path)));
+  return drives;
+});
 ipcMain.handle("vorka:generate-password", () => randomBytes(24).toString("base64url"));
 ipcMain.handle("vorka:generate", async (_event, body: unknown) => {
   if (generating) throw new Error("Key generation is already running");
@@ -72,8 +76,8 @@ ipcMain.handle("vorka:generate", async (_event, body: unknown) => {
   generating = true;
   try {
     const [primaryPath, recoveryPath] = await Promise.all([
-      requireDetectedUnconfiguredDrive(value.primaryPath),
-      requireDetectedUnconfiguredDrive(value.recoveryPath),
+      requireDetectedUnconfiguredDrive(value.primaryPath, undefined, undefined, "primary"),
+      requireDetectedUnconfiguredDrive(value.recoveryPath, undefined, undefined, "recovery"),
     ]);
     const manifest = await generateSplitKeystores(
       primaryPath, recoveryPath, value.authPassword, value.fallbackPassword,
@@ -169,7 +173,7 @@ ipcMain.handle("vorka:replace-primary", async (_event, body: unknown) => {
       throw new Error("This replacement primary is not paired with the selected recovery key");
     }
   } else {
-    const replacementPath = await requireDetectedUnconfiguredDrive(requestedReplacement);
+    const replacementPath = await requireDetectedUnconfiguredDrive(requestedReplacement, undefined, undefined, "primary");
     manifest = await generateReplacementAuth(
       replacementPath, recoveryPath, stringField(value, "newPrimaryPassword"), recoveryPassword,
     );

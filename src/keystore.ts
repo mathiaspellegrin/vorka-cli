@@ -13,13 +13,40 @@ import { ZxcvbnFactory } from "@zxcvbn-ts/core";
 import { adjacencyGraphs, dictionary } from "@zxcvbn-ts/language-common";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 export const AUTH_KEYSTORE_FILENAME = "vorka-auth.json";
 export const FALLBACK_KEYSTORE_FILENAME = "vorka-fallback.json";
 export const ADDRESS_MANIFEST_FILENAME = "vorka-addresses.json";
+export const VORKA_DATA_DIRECTORY = ".vorka";
 export const KEYSTORE_BUNDLE_FORMAT = "vorka-keystore-bundle-v1";
 export const SPLIT_KEYSTORE_BUNDLE_FORMAT = "vorka-split-keystore-bundle-v2";
 const passwordEstimator = new ZxcvbnFactory({ dictionary, graphs: adjacencyGraphs });
+const execFileAsync = promisify(execFile);
+
+function dataDir(dir: string): string { return path.join(dir, VORKA_DATA_DIRECTORY); }
+function dataPath(dir: string, filename: string): string { return path.join(dataDir(dir), filename); }
+export async function resolveVorkaDataFile(dir: string, filename: string): Promise<string> {
+  const nested = dataPath(dir, filename);
+  try { await fs.access(nested); return nested; } catch { return path.join(dir, filename); }
+}
+
+export async function protectVorkaDevice(dir: string): Promise<void> {
+  if (process.platform !== "win32") return;
+  const technicalDir = dataDir(dir);
+  await execFileAsync("attrib", ["+H", "+S", technicalDir]);
+  for (const filename of [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME, ADDRESS_MANIFEST_FILENAME]) {
+    const target = dataPath(dir, filename);
+    try { await fs.access(target); await execFileAsync("attrib", ["+R", target]); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+}
+
+async function allowWindowsWrite(target: string): Promise<void> {
+  if (process.platform === "win32") await execFileAsync("attrib", ["-R", target]);
+}
 
 type AnyWallet = Wallet | HDNodeWallet;
 
@@ -120,11 +147,13 @@ async function writeSyncedFile(filePath: string, contents: string): Promise<void
 
 async function assertTargetsAbsent(dir: string): Promise<void> {
   for (const filename of [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME, ADDRESS_MANIFEST_FILENAME]) {
-    try {
-      await fs.lstat(path.join(dir, filename));
-      throw new Error(`Refusing to overwrite existing keystore bundle file: ${filename}`);
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    for (const target of [dataPath(dir, filename), path.join(dir, filename)]) {
+      try {
+        await fs.lstat(target);
+        throw new Error(`Refusing to overwrite existing keystore bundle file: ${filename}`);
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
 }
@@ -135,11 +164,13 @@ async function publishExclusive(tempPath: string, finalPath: string): Promise<vo
 }
 
 async function targetAbsent(dir: string, filename: string): Promise<void> {
-  try {
-    await fs.lstat(path.join(dir, filename));
-    throw new Error(`Refusing to overwrite existing keystore bundle file: ${filename}`);
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  for (const target of [dataPath(dir, filename), path.join(dir, filename)]) {
+    try {
+      await fs.lstat(target);
+      throw new Error(`Refusing to overwrite existing keystore bundle file: ${filename}`);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -163,6 +194,7 @@ export async function generateSplitKeystores(
     targetAbsent(fallbackReal, FALLBACK_KEYSTORE_FILENAME),
     targetAbsent(fallbackReal, ADDRESS_MANIFEST_FILENAME),
   ]);
+  await Promise.all([fs.mkdir(dataDir(authReal), { recursive: true }), fs.mkdir(dataDir(fallbackReal), { recursive: true })]);
 
   const auth = Wallet.createRandom();
   const fallback = Wallet.createRandom();
@@ -196,11 +228,12 @@ export async function generateSplitKeystores(
       writeSyncedFile(path.join(fallbackStage, FALLBACK_KEYSTORE_FILENAME), fallbackJson),
       writeSyncedFile(path.join(fallbackStage, ADDRESS_MANIFEST_FILENAME), manifestJson),
     ]);
-    await publishExclusive(path.join(authStage, AUTH_KEYSTORE_FILENAME), path.join(authReal, AUTH_KEYSTORE_FILENAME));
-    await publishExclusive(path.join(fallbackStage, FALLBACK_KEYSTORE_FILENAME), path.join(fallbackReal, FALLBACK_KEYSTORE_FILENAME));
+    await publishExclusive(path.join(authStage, AUTH_KEYSTORE_FILENAME), dataPath(authReal, AUTH_KEYSTORE_FILENAME));
+    await publishExclusive(path.join(fallbackStage, FALLBACK_KEYSTORE_FILENAME), dataPath(fallbackReal, FALLBACK_KEYSTORE_FILENAME));
     // Each manifest is a commit marker. A crash before both are published is safely reported as damaged.
-    await publishExclusive(path.join(authStage, ADDRESS_MANIFEST_FILENAME), path.join(authReal, ADDRESS_MANIFEST_FILENAME));
-    await publishExclusive(path.join(fallbackStage, ADDRESS_MANIFEST_FILENAME), path.join(fallbackReal, ADDRESS_MANIFEST_FILENAME));
+    await publishExclusive(path.join(authStage, ADDRESS_MANIFEST_FILENAME), dataPath(authReal, ADDRESS_MANIFEST_FILENAME));
+    await publishExclusive(path.join(fallbackStage, ADDRESS_MANIFEST_FILENAME), dataPath(fallbackReal, ADDRESS_MANIFEST_FILENAME));
+    await Promise.all([protectVorkaDevice(authReal), protectVorkaDevice(fallbackReal)]);
   } finally {
     await Promise.all([
       fs.rm(authStage, { recursive: true, force: true }),
@@ -228,10 +261,11 @@ export async function generateReplacementAuth(
     targetAbsent(newAuthReal, AUTH_KEYSTORE_FILENAME), targetAbsent(newAuthReal, FALLBACK_KEYSTORE_FILENAME),
     targetAbsent(newAuthReal, ADDRESS_MANIFEST_FILENAME),
   ]);
+  await fs.mkdir(dataDir(newAuthReal), { recursive: true });
   const auth = Wallet.createRandom();
   const [authJson, fallbackJson] = await Promise.all([
     auth.encrypt(newAuthPassword),
-    fs.readFile(path.join(fallbackReal, FALLBACK_KEYSTORE_FILENAME), "utf8"),
+    fs.readFile(await resolveVorkaDataFile(fallbackReal, FALLBACK_KEYSTORE_FILENAME), "utf8"),
   ]);
   const payload: BundlePayload = {
     format: SPLIT_KEYSTORE_BUNDLE_FORMAT,
@@ -245,16 +279,19 @@ export async function generateReplacementAuth(
   const manifest: AddressManifest = { ...payload, authSignature: await auth.signMessage(digest), fallbackSignature: await fallback.signMessage(digest) };
   const manifestJson = JSON.stringify(manifest, null, 2);
   const stage = await fs.mkdtemp(path.join(newAuthReal, ".vorka-replacement-"));
-  const recoveryManifestTemp = path.join(fallbackReal, `.vorka-addresses-${Date.now()}.tmp`);
+  const recoveryManifestPath = await resolveVorkaDataFile(fallbackReal, ADDRESS_MANIFEST_FILENAME);
+  const recoveryManifestTemp = path.join(path.dirname(recoveryManifestPath), `.vorka-addresses-${Date.now()}.tmp`);
   try {
     await Promise.all([
       writeSyncedFile(path.join(stage, AUTH_KEYSTORE_FILENAME), authJson),
       writeSyncedFile(path.join(stage, ADDRESS_MANIFEST_FILENAME), manifestJson),
       writeSyncedFile(recoveryManifestTemp, manifestJson),
     ]);
-    await publishExclusive(path.join(stage, AUTH_KEYSTORE_FILENAME), path.join(newAuthReal, AUTH_KEYSTORE_FILENAME));
-    await publishExclusive(path.join(stage, ADDRESS_MANIFEST_FILENAME), path.join(newAuthReal, ADDRESS_MANIFEST_FILENAME));
-    await fs.rename(recoveryManifestTemp, path.join(fallbackReal, ADDRESS_MANIFEST_FILENAME));
+    await publishExclusive(path.join(stage, AUTH_KEYSTORE_FILENAME), dataPath(newAuthReal, AUTH_KEYSTORE_FILENAME));
+    await publishExclusive(path.join(stage, ADDRESS_MANIFEST_FILENAME), dataPath(newAuthReal, ADDRESS_MANIFEST_FILENAME));
+    await allowWindowsWrite(recoveryManifestPath);
+    await fs.rename(recoveryManifestTemp, recoveryManifestPath);
+    await Promise.all([protectVorkaDevice(newAuthReal), protectVorkaDevice(fallbackReal)]);
   } finally {
     await fs.rm(stage, { recursive: true, force: true });
     await fs.rm(recoveryManifestTemp, { force: true });
@@ -318,7 +355,7 @@ export async function generateKeystores(
 }
 
 async function readManifestOnly(dir: string): Promise<AddressManifest> {
-  const raw = await fs.readFile(path.join(dir, ADDRESS_MANIFEST_FILENAME), "utf8");
+  const raw = await fs.readFile(await resolveVorkaDataFile(dir, ADDRESS_MANIFEST_FILENAME), "utf8");
   return parseManifest(raw);
 }
 
@@ -326,15 +363,15 @@ export async function verifyRoleFile(dir: string, role: "auth" | "fallback"): Pr
   const manifest = await readManifestOnly(dir);
   const filename = role === "auth" ? AUTH_KEYSTORE_FILENAME : FALLBACK_KEYSTORE_FILENAME;
   const expectedHash = role === "auth" ? manifest.authKeystoreHash : manifest.fallbackKeystoreHash;
-  const json = await fs.readFile(path.join(dir, filename), "utf8");
+  const json = await fs.readFile(await resolveVorkaDataFile(dir, filename), "utf8");
   if (hashKeystore(json) !== expectedHash) throw new Error(`${role} keystore does not match signed bundle`);
   return { manifest, json };
 }
 
 export async function getDeviceRole(dir: string): Promise<"primary" | "recovery" | "legacy"> {
   const [authPresent, fallbackPresent] = await Promise.all([
-    fs.access(path.join(dir, AUTH_KEYSTORE_FILENAME)).then(() => true).catch(() => false),
-    fs.access(path.join(dir, FALLBACK_KEYSTORE_FILENAME)).then(() => true).catch(() => false),
+    resolveVorkaDataFile(dir, AUTH_KEYSTORE_FILENAME).then((target) => fs.access(target)).then(() => true).catch(() => false),
+    resolveVorkaDataFile(dir, FALLBACK_KEYSTORE_FILENAME).then((target) => fs.access(target)).then(() => true).catch(() => false),
   ]);
   if (authPresent && fallbackPresent) return "legacy";
   if (authPresent) return "primary";
@@ -391,7 +428,7 @@ export async function backupKeystores(sourceDir: string, destDir: string): Promi
       : role === "recovery" ? [FALLBACK_KEYSTORE_FILENAME]
       : [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME];
     for (const filename of [...roleFiles, ADDRESS_MANIFEST_FILENAME]) {
-      await fs.copyFile(path.join(sourceDir, filename), path.join(stageDir, filename), fsConstants.COPYFILE_EXCL);
+      await fs.copyFile(await resolveVorkaDataFile(sourceDir, filename), path.join(stageDir, filename), fsConstants.COPYFILE_EXCL);
       await fs.chmod(path.join(stageDir, filename), 0o600);
     }
     await readAddressManifest(stageDir);

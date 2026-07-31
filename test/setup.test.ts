@@ -9,9 +9,11 @@ import {
   detectVorkaDrives,
   requireDetectedUnconfiguredDrive,
 } from "../src/setup.js";
+import { VORKA_DATA_DIRECTORY } from "../src/keystore.js";
 
 const provisioningManifest = JSON.stringify({
   format: "vorka-provisioned-drive-v1",
+  role: "primary",
   provisionedAt: "2026-07-30T00:00:00.000Z",
   appVersion: "0.1.0",
   portableApps: ["1 - WINDOWS/START VORKA.exe"],
@@ -42,11 +44,12 @@ describe("setup drive detection", () => {
     const ordinary = path.join(root, "ORDINARY");
     await fs.mkdir(vorka);
     await fs.mkdir(ordinary);
-    await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
+    await fs.mkdir(path.join(vorka, VORKA_DATA_DIRECTORY));
+    await fs.writeFile(path.join(vorka, VORKA_DATA_DIRECTORY, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
 
     const drives = await detectVorkaDrives([root], "linux");
     expect(drives).toHaveLength(1);
-    expect(drives[0]).toMatchObject({ path: await fs.realpath(vorka), configured: false, damaged: false });
+    expect(drives[0]).toMatchObject({ path: await fs.realpath(vorka), configured: false, damaged: false, provisionedRole: "primary" });
   });
 
   it("authorizes only an auto-detected provisioned drive", async () => {
@@ -58,6 +61,8 @@ describe("setup drive detection", () => {
     await fs.writeFile(path.join(vorka, PROVISIONING_MANIFEST_FILENAME), provisioningManifest);
 
     await expect(requireDetectedUnconfiguredDrive(vorka, [root], "linux")).resolves.toBe(await fs.realpath(vorka));
+    await expect(requireDetectedUnconfiguredDrive(vorka, [root], "linux", "primary")).resolves.toBe(await fs.realpath(vorka));
+    await expect(requireDetectedUnconfiguredDrive(vorka, [root], "linux", "recovery")).rejects.toThrow(/not provisioned as the recovery/i);
     await expect(requireDetectedUnconfiguredDrive(ordinary, [root], "linux")).rejects.toThrow(/not a detected/i);
   });
 

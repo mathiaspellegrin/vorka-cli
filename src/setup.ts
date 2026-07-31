@@ -7,6 +7,8 @@ import {
   FALLBACK_KEYSTORE_FILENAME,
   getDeviceRole,
   readAddressManifest,
+  resolveVorkaDataFile,
+  VORKA_DATA_DIRECTORY,
 } from "./keystore.js";
 
 export const PROVISIONING_MANIFEST_FILENAME = "vorka-manifest.json";
@@ -18,6 +20,7 @@ export interface DetectedVorkaDrive {
   damaged: boolean;
   problem?: string;
   role?: "primary" | "recovery" | "legacy";
+  provisionedRole?: "primary" | "recovery";
   authAddress?: string;
   fallbackAddress?: string;
 }
@@ -28,10 +31,13 @@ async function pathExists(target: string): Promise<boolean> {
   return fs.access(target).then(() => true).catch(() => false);
 }
 
-async function validateProvisioningManifest(dir: string): Promise<void> {
+async function validateProvisioningManifest(dir: string): Promise<"primary" | "recovery" | undefined> {
   let value: unknown;
   try {
-    value = JSON.parse(await fs.readFile(path.join(dir, PROVISIONING_MANIFEST_FILENAME), "utf8"));
+    const nested = path.join(dir, VORKA_DATA_DIRECTORY, PROVISIONING_MANIFEST_FILENAME);
+    let marker = nested;
+    try { await fs.access(marker); } catch { marker = path.join(dir, PROVISIONING_MANIFEST_FILENAME); }
+    value = JSON.parse(await fs.readFile(marker, "utf8"));
   } catch {
     throw new Error("The Vorka provisioning marker is unreadable or invalid");
   }
@@ -43,9 +49,11 @@ async function validateProvisioningManifest(dir: string): Promise<void> {
       typeof manifest.provisionedAt !== "string" || Number.isNaN(Date.parse(manifest.provisionedAt)) ||
       typeof manifest.appVersion !== "string" ||
       !Array.isArray(manifest.portableApps) ||
-      !manifest.portableApps.every((entry) => typeof entry === "string")) {
+      !manifest.portableApps.every((entry) => typeof entry === "string") ||
+      (manifest.role !== undefined && manifest.role !== "primary" && manifest.role !== "recovery")) {
     throw new Error("The Vorka provisioning marker has an unsupported format");
   }
+  return manifest.role as "primary" | "recovery" | undefined;
 }
 
 export async function assertDriveWritableAndSpacious(dir: string): Promise<void> {
@@ -88,18 +96,19 @@ export async function detectVorkaDrives(
 ): Promise<DetectedVorkaDrive[]> {
   const candidates = (await Promise.all(roots.map((root) => directoryChildren(root, platform)))).flat();
   const drives: DetectedVorkaDrive[] = [];
-  for (const candidate of candidates) {
+  const detected = await Promise.all(candidates.map(async (candidate): Promise<DetectedVorkaDrive | undefined> => {
     try {
-      await validateProvisioningManifest(candidate);
+      const provisionedRole = await validateProvisioningManifest(candidate);
       const realPath = await fs.realpath(candidate);
       const drive: DetectedVorkaDrive = {
         path: realPath,
         label: path.basename(realPath) || realPath,
         configured: false,
         damaged: false,
+        provisionedRole,
       };
       const bundleFiles = [AUTH_KEYSTORE_FILENAME, FALLBACK_KEYSTORE_FILENAME, ADDRESS_MANIFEST_FILENAME];
-      const bundlePresence = await Promise.all(bundleFiles.map((filename) => pathExists(path.join(realPath, filename))));
+      const bundlePresence = await Promise.all(bundleFiles.map(async (filename) => pathExists(await resolveVorkaDataFile(realPath, filename))));
       if (bundlePresence.some(Boolean)) {
         try {
           const manifest = await readAddressManifest(realPath);
@@ -112,11 +121,13 @@ export async function detectVorkaDrives(
           drive.problem = "The encrypted key bundle is incomplete or damaged; setup will not overwrite it";
         }
       }
-      drives.push(drive);
+      return drive;
     } catch {
       // Missing/inaccessible roots and ordinary removable drives are intentionally ignored.
+      return undefined;
     }
-  }
+  }));
+  drives.push(...detected.filter((drive): drive is DetectedVorkaDrive => drive !== undefined));
   return drives.sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -124,6 +135,7 @@ export async function requireDetectedUnconfiguredDrive(
   selectedPath: string,
   roots = defaultDriveRoots(),
   platform = process.platform,
+  expectedRole?: "primary" | "recovery",
 ): Promise<string> {
   const selectedRealPath = await fs.realpath(selectedPath);
   const detected = await detectVorkaDrives(roots, platform);
@@ -131,6 +143,9 @@ export async function requireDetectedUnconfiguredDrive(
   if (!match) throw new Error("Selected path is not a detected provisioned Vorka drive");
   if (match.configured) throw new Error("This Vorka drive is already configured; refusing to replace its keys");
   if (match.damaged) throw new Error(match.problem ?? "This Vorka drive contains a damaged key bundle");
+  if (expectedRole && match.provisionedRole !== expectedRole) {
+    throw new Error(`This USB was not provisioned as the ${expectedRole} key`);
+  }
   await assertDriveWritableAndSpacious(selectedRealPath);
   return selectedRealPath;
 }

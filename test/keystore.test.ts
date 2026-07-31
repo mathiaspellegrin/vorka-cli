@@ -14,6 +14,7 @@ import {
   generateSplitKeystores,
   getDeviceRole,
   generateReplacementAuth,
+  VORKA_DATA_DIRECTORY,
 } from "../src/keystore.js";
 
 const AUTH_PASSWORD = "cobalt river lantern meadow 47";
@@ -29,6 +30,9 @@ describe("keystore", () => {
       const manifest = await generateSplitKeystores(primary, recovery, AUTH_PASSWORD, FALLBACK_PASSWORD);
       expect(await getDeviceRole(primary)).toBe("primary");
       expect(await getDeviceRole(recovery)).toBe("recovery");
+      await expect(readFile(path.join(primary, VORKA_DATA_DIRECTORY, AUTH_KEYSTORE_FILENAME))).resolves.toBeTruthy();
+      await expect(readFile(path.join(recovery, VORKA_DATA_DIRECTORY, FALLBACK_KEYSTORE_FILENAME))).resolves.toBeTruthy();
+      await expect(readFile(path.join(primary, AUTH_KEYSTORE_FILENAME))).rejects.toThrow();
       await expect(readFile(path.join(primary, FALLBACK_KEYSTORE_FILENAME))).rejects.toThrow();
       await expect(readFile(path.join(recovery, AUTH_KEYSTORE_FILENAME))).rejects.toThrow();
       expect((await readAddressManifest(primary)).generationId).toBe(manifest.generationId);
