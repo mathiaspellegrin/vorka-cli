@@ -13,6 +13,7 @@ execFileSync(esbuild, ["src/native-main.ts", ...common, `--outfile=${path.join(o
 execFileSync(esbuild, ["src/native-preload.ts", ...common, `--outfile=${path.join(output, "native-preload.cjs")}`], { stdio: "inherit", shell: process.platform === "win32" });
 execFileSync(esbuild, ["src/native-renderer.ts", "--bundle", "--platform=browser", "--format=iife", `--outfile=${path.join(output, "native-renderer.js")}`], { stdio: "inherit", shell: process.platform === "win32" });
 await copyFile(path.join(root, "src", "native-ui.html"), path.join(output, "native-ui.html"));
+await copyFile(path.join(root, "src", "native-splash.html"), path.join(output, "native-splash.html"));
 await copyFile(path.join(root, "src", "native-ui.css"), path.join(output, "native-ui.css"));
 await copyFile(path.join(root, "assets", "vorka-mark.png"), path.join(output, "vorka-mark.png"));
 await copyFile(path.join(root, "assets", "vorka.ico"), path.join(output, "vorka.ico"));

@@ -49,7 +49,7 @@ jobs:
               Sort-Object FullName -Descending |
               Select-Object -First 1
             if (-not $signTool) { throw "Windows SignTool was not found" }
-            $executable = Get-ChildItem "release\Vorka-Windows-*.exe" | Select-Object -First 1
+            $executable = Get-Item "release\VORKA.exe"
             if (-not $executable) { throw "The Windows Vorka executable was not found" }
             & $signTool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificatePath /p $env:VORKA_WINDOWS_CERTIFICATE_PASSWORD $executable.FullName
             if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed" }
@@ -64,6 +64,6 @@ jobs:
         with:
           name: vorka-Windows-X64
           path: |
-            release/Vorka-Windows-*.exe
+            release/VORKA.exe
             release/vorka-release-manifest.json
           if-no-files-found: error

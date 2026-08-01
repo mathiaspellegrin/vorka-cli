@@ -32,13 +32,31 @@ function handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: 
   });
 }
 
-function createWindow(): void {
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 420,
+    height: 360,
+    show: false,
+    frame: false,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    center: true,
+    backgroundColor: "#e7e2d6",
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
+  });
+  splash.once("ready-to-show", () => splash.show());
+  void splash.loadFile(path.join(__dirname, "native-splash.html"));
+  return splash;
+}
+
+function createWindow(splash?: BrowserWindow): void {
   const window = new BrowserWindow({
     width: 820,
     height: 780,
     minWidth: 620,
     minHeight: 640,
-    show: true,
+    show: false,
     title: "Vorka",
     icon: path.join(__dirname, "vorka.ico"),
     backgroundColor: "#e7e2d6",
@@ -54,7 +72,11 @@ function createWindow(): void {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  window.maximize();
+  window.once("ready-to-show", () => {
+    window.maximize();
+    window.show();
+    if (splash && !splash.isDestroyed()) splash.close();
+  });
   void window.loadFile(path.join(__dirname, "native-ui.html"));
 }
 
@@ -260,7 +282,8 @@ app.whenReady().then(() => {
   app.setAppUserModelId("com.fluxpad.vorka");
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  createWindow();
+  const splash = createSplashWindow();
+  createWindow(splash);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

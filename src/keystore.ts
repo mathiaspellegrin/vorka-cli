@@ -9,8 +9,6 @@ import {
   verifyMessage,
   type HDNodeWallet,
 } from "ethers";
-import { ZxcvbnFactory } from "@zxcvbn-ts/core";
-import { adjacencyGraphs, dictionary } from "@zxcvbn-ts/language-common";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -22,7 +20,6 @@ export const ADDRESS_MANIFEST_FILENAME = "vorka-addresses.json";
 export const VORKA_DATA_DIRECTORY = ".vorka";
 export const KEYSTORE_BUNDLE_FORMAT = "vorka-keystore-bundle-v1";
 export const SPLIT_KEYSTORE_BUNDLE_FORMAT = "vorka-split-keystore-bundle-v2";
-const passwordEstimator = new ZxcvbnFactory({ dictionary, graphs: adjacencyGraphs });
 const execFileAsync = promisify(execFile);
 
 function dataDir(dir: string): string { return path.join(dir, VORKA_DATA_DIRECTORY); }
@@ -106,11 +103,8 @@ function hashKeystore(json: string): string {
 }
 
 export function validatePassword(password: string, role: "auth" | "fallback"): void {
-  if (Array.from(password).length < 16) {
-    throw new Error(`${role} password must contain at least 16 characters`);
-  }
-  if (passwordEstimator.check(password).score < 3) {
-    throw new Error(`${role} password is too easy to guess`);
+  if (Array.from(password).length < 8) {
+    throw new Error(`${role} password must contain at least 8 characters`);
   }
 }
 

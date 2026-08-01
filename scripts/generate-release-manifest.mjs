@@ -7,7 +7,7 @@ import process from "node:process";
 const root = process.cwd();
 const releaseDir = path.join(root, "release");
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-const names = (await readdir(releaseDir)).filter((name) => /^Vorka-Windows-.+\.exe$/.test(name));
+const names = (await readdir(releaseDir)).filter((name) => name === "VORKA.exe");
 if (names.length !== 1) throw new Error(`Expected exactly one Windows release executable, found ${names.length}`);
 const sourceRevision = process.env.GITHUB_SHA || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const executable = await readFile(path.join(releaseDir, names[0]));
