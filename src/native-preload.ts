@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("vorka", Object.freeze({
   backupDevice: (request: unknown) => ipcRenderer.invoke("vorka:backup-device", request),
   restoreDevice: (request: unknown) => ipcRenderer.invoke("vorka:restore-device", request),
   generate: (request: unknown) => ipcRenderer.invoke("vorka:generate", request),
+  sponsorStatus: () => ipcRenderer.invoke("vorka:sponsor-status"),
+  createSponsoredVault: (request: unknown) => ipcRenderer.invoke("vorka:create-sponsored-vault", request),
   vaultOverview: (request: unknown) => ipcRenderer.invoke("vorka:vault-overview", request),
   createVault: (request: unknown) => ipcRenderer.invoke("vorka:create-vault", request),
   reviewWithdrawNative: (request: unknown) => ipcRenderer.invoke("vorka:review-withdraw-native", request),

@@ -24,6 +24,7 @@ const pendingWithdrawals = new Map<string, {
   signature: string; authAddress: string; beneficiary: string; operationalNonce: bigint;
 }>();
 const trustedRendererUrl = pathToFileURL(path.join(__dirname, "native-ui.html")).href;
+const sponsorApiUrl = process.env.VORKA_SPONSOR_API_URL ?? "";
 
 function handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void {
   ipcMain.handle(channel, (event, ...args) => {
@@ -147,10 +148,54 @@ handle("vorka:generate", async (_event, body: unknown) => {
     const manifest = await generateSplitKeystores(
       primaryPath, recoveryPath, value.authPassword, value.fallbackPassword,
     );
-    return { authAddress: manifest.authAddress, fallbackAddress: manifest.fallbackAddress };
+    return { authAddress: manifest.authAddress, fallbackAddress: manifest.fallbackAddress, generationId: manifest.generationId };
   } finally {
     generating = false;
   }
+});
+
+handle("vorka:sponsor-status", () => ({ available: sponsorApiUrl.length > 0 }));
+
+handle("vorka:create-sponsored-vault", async (_event, body: unknown) => {
+  if (!sponsorApiUrl) throw new Error("Sponsored Vault creation is not configured in this Vorka build");
+  const endpoint = new URL(sponsorApiUrl);
+  if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["127.0.0.1", "localhost"].includes(endpoint.hostname))) {
+    throw new Error("Sponsored Vault endpoint must use HTTPS");
+  }
+  const value = objectBody(body), primaryPath = stringField(value, "primaryPath");
+  const matching = (await detectVorkaDrives()).filter((drive) => drive.path === primaryPath && drive.configured && !drive.damaged && drive.role === "primary");
+  if (matching.length !== 1) throw new Error("The configured Primary key is no longer connected");
+  const manifest = await readAddressManifest(primaryPath);
+  const beneficiary = getAddress(stringField(value, "beneficiary"));
+  const activationCode = stringField(value, "activationCode");
+  if (activationCode.length < 12 || activationCode.length > 256) throw new Error("Invalid one-time activation code");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ activationCode, beneficiary, authAddress: manifest.authAddress,
+      fallbackAddress: manifest.fallbackAddress, generationId: manifest.generationId }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const raw = await response.text();
+  if (raw.length > 65_536) throw new Error("Sponsored Vault service returned an oversized response");
+  if (!response.ok) throw new Error(`Sponsored Vault creation failed (${response.status})`);
+  let decoded: unknown;
+  try { decoded = JSON.parse(raw); } catch { throw new Error("Sponsored Vault service returned invalid JSON"); }
+  if (!decoded || typeof decoded !== "object") throw new Error("Sponsored Vault service returned an invalid response");
+  const result = decoded as Record<string, unknown>;
+  if (typeof result.rpc !== "string" || typeof result.chainId !== "number" || !Number.isSafeInteger(result.chainId) ||
+      typeof result.vaultAddress !== "string" || typeof result.factoryAddress !== "string" || typeof result.txHash !== "string") {
+    throw new Error("Sponsored Vault service response is incomplete");
+  }
+  const chain = { rpc: result.rpc, chainId: result.chainId };
+  const provider = await getValidatedProvider(chain);
+  const vaultAddress = getAddress(result.vaultAddress), factoryAddress = getAddress(result.factoryAddress);
+  const state = await getVaultState(provider, vaultAddress);
+  if (getAddress(state.owner) !== beneficiary || getAddress(state.authAddress) !== manifest.authAddress ||
+      getAddress(state.fallbackAddress) !== manifest.fallbackAddress) {
+    throw new Error("Sponsored service created a Vault with unexpected identities");
+  }
+  return { vaultAddress, factoryAddress, rpc: chain.rpc, chainId: chain.chainId, txHash: result.txHash };
 });
 
 handle("vorka:vault-overview", async (_event, body: unknown) => {
