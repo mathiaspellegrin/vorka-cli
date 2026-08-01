@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, type IpcMainInvokeEvent } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { ZeroAddress, formatEther, getAddress, parseEther } from "ethers";
-import { generateReplacementAuth, generateSplitKeystores, protectVorkaDevice, readAddressManifest, unlockAuthKeystore, unlockFallbackKeystore } from "./keystore.js";
-import { detectVorkaDrives, requireDetectedUnconfiguredDrive } from "./setup.js";
+import { backupKeystores, generateReplacementAuth, generateSplitKeystores, getDeviceRole, protectVorkaDevice, readAddressManifest, restoreKeystoreBackup, unlockAuthKeystore, unlockFallbackKeystore } from "./keystore.js";
+import { detectVorkaDrives, requireDetectedUnconfiguredDrive, requireUniqueProvisionedPair } from "./setup.js";
 import {
   createVault,
+  estimateWithdrawFee,
   getValidatedProvider,
   getVaultState,
   signingDeadline,
@@ -17,6 +19,18 @@ import {
 import { signFreeze, signModifyIdentity, signWithdraw } from "./sign.js";
 
 let generating = false;
+const pendingWithdrawals = new Map<string, {
+  expiresAt: number; chain: ChainConfig; vaultAddress: string; amount: bigint; deadline: bigint;
+  signature: string; authAddress: string; beneficiary: string; operationalNonce: bigint;
+}>();
+const trustedRendererUrl = pathToFileURL(path.join(__dirname, "native-ui.html")).href;
+
+function handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (event.senderFrame?.url !== trustedRendererUrl) throw new Error("Untrusted application frame");
+    return listener(event, ...args);
+  });
+}
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -39,6 +53,7 @@ function createWindow(): void {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.maximize();
   void window.loadFile(path.join(__dirname, "native-ui.html"));
 }
@@ -60,13 +75,43 @@ function chainFrom(value: Record<string, unknown>): ChainConfig {
   return { rpc, chainId: Number(chainId) };
 }
 
-ipcMain.handle("vorka:list-drives", async () => {
+handle("vorka:list-drives", async () => {
   const drives = await detectVorkaDrives();
   await Promise.all(drives.map((drive) => protectVorkaDevice(drive.path)));
   return drives;
 });
-ipcMain.handle("vorka:generate-password", () => randomBytes(24).toString("base64url"));
-ipcMain.handle("vorka:generate", async (_event, body: unknown) => {
+handle("vorka:generate-password", () => randomBytes(24).toString("base64url"));
+handle("vorka:backup-device", async (_event, body: unknown) => {
+  const value = objectBody(body), requestedSource = stringField(value, "sourcePath");
+  const candidates = (await detectVorkaDrives()).filter((drive) => drive.path === requestedSource && drive.configured && !drive.damaged);
+  if (candidates.length !== 1) throw new Error("The backup source is no longer exactly one configured Vorka device");
+  const role = await getDeviceRole(requestedSource);
+  if (role !== "primary" && role !== "recovery") throw new Error("Back up Primary and Recovery separately");
+  const manifest = await readAddressManifest(requestedSource);
+  const selection = await dialog.showOpenDialog({ title: `Choose where to store the ${role.toUpperCase()} encrypted backup`,
+    properties: ["openDirectory", "createDirectory", "promptToCreate"] });
+  if (selection.canceled || selection.filePaths.length !== 1) return { canceled: true };
+  const folder = `Vorka-${role.toUpperCase()}-backup-${manifest.generationId.slice(2, 14)}`;
+  const destination = path.join(selection.filePaths[0], folder);
+  await backupKeystores(requestedSource, destination);
+  return { canceled: false, role, destination, generationId: manifest.generationId };
+});
+
+handle("vorka:restore-device", async (_event, body: unknown) => {
+  const value = objectBody(body), requestedDestination = stringField(value, "destinationPath");
+  const detected = (await detectVorkaDrives()).filter((drive) => drive.path === requestedDestination && !drive.configured && !drive.damaged);
+  if (detected.length !== 1 || (detected[0].provisionedRole !== "primary" && detected[0].provisionedRole !== "recovery")) {
+    throw new Error("Select exactly one fresh provisioned Vorka device as the restore destination");
+  }
+  const expectedRole = detected[0].provisionedRole;
+  const destinationPath = await requireDetectedUnconfiguredDrive(requestedDestination, undefined, undefined, expectedRole);
+  const selection = await dialog.showOpenDialog({ title: `Select the Vorka ${expectedRole.toUpperCase()} backup folder`,
+    properties: ["openDirectory"] });
+  if (selection.canceled || selection.filePaths.length !== 1) return { canceled: true };
+  const manifest = await restoreKeystoreBackup(selection.filePaths[0], destinationPath, expectedRole);
+  return { canceled: false, role: expectedRole, generationId: manifest.generationId };
+});
+handle("vorka:generate", async (_event, body: unknown) => {
   if (generating) throw new Error("Key generation is already running");
   const value = objectBody(body);
   if (typeof value.primaryPath !== "string" || typeof value.recoveryPath !== "string" ||
@@ -76,10 +121,7 @@ ipcMain.handle("vorka:generate", async (_event, body: unknown) => {
   }
   generating = true;
   try {
-    const [primaryPath, recoveryPath] = await Promise.all([
-      requireDetectedUnconfiguredDrive(value.primaryPath, undefined, undefined, "primary"),
-      requireDetectedUnconfiguredDrive(value.recoveryPath, undefined, undefined, "recovery"),
-    ]);
+    const { primaryPath, recoveryPath } = await requireUniqueProvisionedPair(value.primaryPath, value.recoveryPath);
     const manifest = await generateSplitKeystores(
       primaryPath, recoveryPath, value.authPassword, value.fallbackPassword,
     );
@@ -89,7 +131,7 @@ ipcMain.handle("vorka:generate", async (_event, body: unknown) => {
   }
 });
 
-ipcMain.handle("vorka:vault-overview", async (_event, body: unknown) => {
+handle("vorka:vault-overview", async (_event, body: unknown) => {
   const value = objectBody(body);
   const provider = await getValidatedProvider(chainFrom(value));
   const vaultAddress = getAddress(stringField(value, "vaultAddress"));
@@ -98,7 +140,7 @@ ipcMain.handle("vorka:vault-overview", async (_event, body: unknown) => {
     emergencyNonce: state.emergencyNonce.toString(), nativeBalance: formatEther(balance), vaultAddress };
 });
 
-ipcMain.handle("vorka:create-vault", async (_event, body: unknown) => {
+handle("vorka:create-vault", async (_event, body: unknown) => {
   const value = objectBody(body);
   const provider = await getValidatedProvider(chainFrom(value));
   const primaryPath = stringField(value, "primaryPath");
@@ -115,7 +157,7 @@ ipcMain.handle("vorka:create-vault", async (_event, body: unknown) => {
   return { vaultAddress };
 });
 
-ipcMain.handle("vorka:withdraw-native", async (_event, body: unknown) => {
+handle("vorka:review-withdraw-native", async (_event, body: unknown) => {
   const value = objectBody(body);
   const chain = chainFrom(value);
   const provider = await getValidatedProvider(chain);
@@ -129,11 +171,34 @@ ipcMain.handle("vorka:withdraw-native", async (_event, body: unknown) => {
   if (amount <= 0n) throw new Error("Withdrawal amount must be greater than zero");
   const deadline = await signingDeadline(provider);
   const signature = await signWithdraw(auth, { chainId: chain.chainId, vaultAddress }, ZeroAddress, amount, deadline, state.operationalNonce);
-  const txHash = await submitWithdraw(vaultAddress, ZeroAddress, amount, deadline, signature, auth.connect(provider));
+  const fee = await estimateWithdrawFee(provider, vaultAddress, ZeroAddress, amount, deadline, signature, auth.address);
+  const reviewId = randomBytes(32).toString("hex"), expiresAt = Date.now() + 2 * 60_000;
+  pendingWithdrawals.set(reviewId, { expiresAt, chain, vaultAddress, amount, deadline, signature, authAddress: auth.address,
+    beneficiary: state.owner, operationalNonce: state.operationalNonce });
+  return { reviewId, expiresAt, action: "Withdraw native funds", chainId: chain.chainId, vaultAddress,
+    beneficiary: state.owner, amount: formatEther(amount), gasLimit: fee.gasLimit.toString(),
+    maxFeePerGas: fee.maxFeePerGas.toString(), estimatedFee: formatEther(fee.estimatedFee),
+    operationalNonce: state.operationalNonce.toString(), deadline: deadline.toString() };
+});
+
+handle("vorka:confirm-withdraw-native", async (_event, body: unknown) => {
+  const value = objectBody(body), reviewId = stringField(value, "reviewId");
+  const pending = pendingWithdrawals.get(reviewId);
+  pendingWithdrawals.delete(reviewId);
+  if (!pending || pending.expiresAt < Date.now()) throw new Error("Transaction review expired; review the withdrawal again");
+  const provider = await getValidatedProvider(pending.chain);
+  const state = await getVaultState(provider, pending.vaultAddress);
+  if (state.frozen || state.authAddress !== pending.authAddress || state.owner !== pending.beneficiary ||
+      state.operationalNonce !== pending.operationalNonce) {
+    throw new Error("Vault state changed after review; review the withdrawal again");
+  }
+  const auth = await unlockAuthKeystore(stringField(value, "primaryPath"), stringField(value, "password"));
+  if (auth.address !== pending.authAddress) throw new Error("This primary key no longer controls the reviewed Vault");
+  const txHash = await submitWithdraw(pending.vaultAddress, ZeroAddress, pending.amount, pending.deadline, pending.signature, auth.connect(provider));
   return { txHash };
 });
 
-ipcMain.handle("vorka:freeze-vault", async (_event, body: unknown) => {
+handle("vorka:freeze-vault", async (_event, body: unknown) => {
   const value = objectBody(body), chain = chainFrom(value);
   const provider = await getValidatedProvider(chain);
   const vaultAddress = getAddress(stringField(value, "vaultAddress"));
@@ -148,7 +213,7 @@ ipcMain.handle("vorka:freeze-vault", async (_event, body: unknown) => {
   return { txHash, alreadyFrozen: false };
 });
 
-ipcMain.handle("vorka:replace-primary", async (_event, body: unknown) => {
+handle("vorka:replace-primary", async (_event, body: unknown) => {
   const value = objectBody(body), chain = chainFrom(value);
   const provider = await getValidatedProvider(chain);
   const vaultAddress = getAddress(stringField(value, "vaultAddress"));
@@ -192,6 +257,9 @@ ipcMain.handle("vorka:replace-primary", async (_event, body: unknown) => {
 });
 
 app.whenReady().then(() => {
+  app.setAppUserModelId("com.fluxpad.vorka");
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

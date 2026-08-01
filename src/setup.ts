@@ -151,3 +151,26 @@ export async function requireDetectedUnconfiguredDrive(
   await assertDriveWritableAndSpacious(selectedRealPath);
   return selectedRealPath;
 }
+
+export async function requireUniqueProvisionedPair(
+  primaryPath: string,
+  recoveryPath: string,
+  roots = defaultDriveRoots(),
+  platform = process.platform,
+): Promise<{ primaryPath: string; recoveryPath: string }> {
+  const detected = await detectVorkaDrives(roots, platform);
+  const primaries = detected.filter((drive) => !drive.configured && !drive.damaged && drive.provisionedRole === "primary");
+  const recoveries = detected.filter((drive) => !drive.configured && !drive.damaged && drive.provisionedRole === "recovery");
+  if (primaries.length !== 1 || recoveries.length !== 1) {
+    throw new Error(`Expected exactly one PRIMARY and one RECOVERY key; detected ${primaries.length} PRIMARY and ${recoveries.length} RECOVERY`);
+  }
+  const [selectedPrimary, selectedRecovery] = await Promise.all([fs.realpath(primaryPath), fs.realpath(recoveryPath)]);
+  if (primaries[0].path !== selectedPrimary || recoveries[0].path !== selectedRecovery) {
+    throw new Error("The selected devices changed during setup; refresh and try again");
+  }
+  await Promise.all([
+    assertDriveWritableAndSpacious(selectedPrimary),
+    assertDriveWritableAndSpacious(selectedRecovery),
+  ]);
+  return { primaryPath: selectedPrimary, recoveryPath: selectedRecovery };
+}

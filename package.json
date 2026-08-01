@@ -14,6 +14,7 @@
     "build:portable": "node scripts/build-portable.mjs",
     "build:native": "node scripts/build-native.mjs",
     "package:windows": "node scripts/build-native.mjs --package",
+    "manifest:release": "node scripts/generate-release-manifest.mjs",
     "test": "vitest run --testTimeout=15000",
     "cli": "tsx src/cli.ts",
     "setup": "tsx src/setup-app.ts"
@@ -29,6 +30,14 @@
     "appId": "com.fluxpad.vorka",
     "productName": "Vorka",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
     "files": [".native-build/**/*", "package.json"],
     "directories": { "output": "release" },
     "win": {

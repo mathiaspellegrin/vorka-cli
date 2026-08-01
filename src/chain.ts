@@ -169,6 +169,23 @@ export async function submitWithdraw(
   return receipt.hash;
 }
 
+export async function estimateWithdrawFee(
+  provider: JsonRpcProvider,
+  vaultAddress: string,
+  token: string,
+  amount: bigint,
+  deadline: bigint,
+  signature: string,
+  sender: string,
+): Promise<{ gasLimit: bigint; maxFeePerGas: bigint; estimatedFee: bigint }> {
+  const vault = vaultContract(vaultAddress, provider);
+  const gasLimit: bigint = await vault.withdraw.estimateGas(token, amount, deadline, signature, { from: sender });
+  const feeData = await provider.getFeeData();
+  const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice;
+  if (maxFeePerGas === null) throw new Error("RPC did not return gas pricing");
+  return { gasLimit, maxFeePerGas, estimatedFee: gasLimit * maxFeePerGas };
+}
+
 export async function submitExecute(
   vaultAddress: string,
   target: string,

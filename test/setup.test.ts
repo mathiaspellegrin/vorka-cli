@@ -8,6 +8,7 @@ import {
   defaultDriveRoots,
   detectVorkaDrives,
   requireDetectedUnconfiguredDrive,
+  requireUniqueProvisionedPair,
 } from "../src/setup.js";
 import { VORKA_DATA_DIRECTORY } from "../src/keystore.js";
 
@@ -17,6 +18,10 @@ const provisioningManifest = JSON.stringify({
   provisionedAt: "2026-07-30T00:00:00.000Z",
   appVersion: "0.1.0",
   portableApps: ["VORKA.exe"],
+});
+const manifestFor = (role: "primary" | "recovery") => JSON.stringify({
+  format: "vorka-provisioned-drive-v1", role, provisionedAt: "2026-07-30T00:00:00.000Z",
+  appVersion: "0.1.0", portableApps: ["VORKA.exe"],
 });
 
 const temporaryDirectories: string[] = [];
@@ -91,5 +96,22 @@ describe("setup drive detection", () => {
     const dir = await tempDir();
     await expect(assertDriveWritableAndSpacious(dir)).resolves.toBeUndefined();
     await expect(assertDriveWritableAndSpacious(path.join(dir, "missing"))).rejects.toThrow(/not writable/i);
+  });
+
+  it("requires exactly one unconfigured device for each role", async () => {
+    const root = await tempDir();
+    const primary = path.join(root, "PRIMARY"), recovery = path.join(root, "RECOVERY");
+    await Promise.all([fs.mkdir(primary), fs.mkdir(recovery)]);
+    await Promise.all([
+      fs.writeFile(path.join(primary, PROVISIONING_MANIFEST_FILENAME), manifestFor("primary")),
+      fs.writeFile(path.join(recovery, PROVISIONING_MANIFEST_FILENAME), manifestFor("recovery")),
+    ]);
+    await expect(requireUniqueProvisionedPair(primary, recovery, [root], "linux")).resolves.toEqual({
+      primaryPath: await fs.realpath(primary), recoveryPath: await fs.realpath(recovery),
+    });
+    const duplicate = path.join(root, "PRIMARY-2");
+    await fs.mkdir(duplicate);
+    await fs.writeFile(path.join(duplicate, PROVISIONING_MANIFEST_FILENAME), manifestFor("primary"));
+    await expect(requireUniqueProvisionedPair(primary, recovery, [root], "linux")).rejects.toThrow(/exactly one PRIMARY/);
   });
 });

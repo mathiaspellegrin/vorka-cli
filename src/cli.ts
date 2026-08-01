@@ -7,6 +7,7 @@ import {
   backupKeystores,
   generateKeystores,
   readAddressManifest,
+  restoreKeystoreBackup,
   unlockAuthKeystore,
   unlockFallbackKeystore,
 } from "./keystore.js";
@@ -92,11 +93,25 @@ program
 
 program
   .command("backup <destination>")
-  .description("Copy both encrypted keystore files as-is to another location (no decryption)")
+  .description("Copy this device's encrypted role file and signed manifest as-is (no decryption)")
   .action(async (destination: string) => {
     const opts = program.opts();
     await backupKeystores(opts.dir, path.resolve(destination));
     console.log(`Copied encrypted keystores to ${destination}`);
+  });
+
+program
+  .command("restore <backup> <destination>")
+  .description("Restore a verified ciphertext backup onto an empty prepared device (no decryption)")
+  .option("--role <role>", "require primary or recovery role")
+  .action(async (backup: string, destination: string, commandOptions: { role?: string }) => {
+    if (commandOptions.role && commandOptions.role !== "primary" && commandOptions.role !== "recovery") {
+      throw new Error("--role must be primary or recovery");
+    }
+    const manifest = await restoreKeystoreBackup(
+      path.resolve(backup), path.resolve(destination), commandOptions.role as "primary" | "recovery" | undefined,
+    );
+    console.log(`Restored verified encrypted backup generation ${manifest.generationId} to ${destination}`);
   });
 
 program

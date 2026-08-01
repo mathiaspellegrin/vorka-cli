@@ -2,6 +2,12 @@ name: Build native Vorka for Windows
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Produce a customer-distributable, signed release"
+        required: true
+        type: boolean
+        default: false
   push:
     branches: [master]
 
@@ -27,9 +33,13 @@ jobs:
         env:
           VORKA_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.VORKA_WINDOWS_CERTIFICATE_BASE64 }}
           VORKA_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.VORKA_WINDOWS_CERTIFICATE_PASSWORD }}
+          VORKA_RELEASE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:VORKA_WINDOWS_CERTIFICATE_BASE64)) {
-            Write-Host "No Authenticode certificate configured; development artifact remains unsigned."
+            if ($env:VORKA_RELEASE_BUILD -eq "true") {
+              throw "A customer release was requested but the Authenticode certificate is not configured."
+            }
+            Write-Warning "Development artifact only: Authenticode certificate is not configured."
             exit 0
           }
           $certificatePath = Join-Path $env:RUNNER_TEMP "vorka-signing.pfx"
@@ -48,8 +58,12 @@ jobs:
           } finally {
             Remove-Item $certificatePath -Force -ErrorAction SilentlyContinue
           }
+      - name: Generate release integrity manifest
+        run: npm run manifest:release
       - uses: actions/upload-artifact@v4
         with:
           name: vorka-Windows-X64
-          path: release/Vorka-Windows-*.exe
+          path: |
+            release/Vorka-Windows-*.exe
+            release/vorka-release-manifest.json
           if-no-files-found: error
