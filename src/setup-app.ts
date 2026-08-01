@@ -52,9 +52,9 @@ function page(): string {
 <h1>Set up your Vorka Key</h1><p>Your keys are created on this computer and written to the encrypted USB. Vorka never receives your passwords or private keys.</p>
 <div class="status"><div id="dot" class="dot"></div><div><strong id="statusTitle">Looking for your key…</strong><div id="statusPath" class="drive"></div></div></div>
 <div id="setup" class="hidden"><label for="drive">Detected Vorka Key</label><select id="drive"></select>
-<label for="auth">Daily-use password</label><input id="auth" type="password" autocomplete="new-password" minlength="8"><div class="hint">Minimum 8 characters; 16+ or a generated password is strongly recommended.</div>
+<label for="auth">Daily-use password</label><input id="auth" type="password" autocomplete="new-password" minlength="16"><div class="hint">At least 16 characters. Used for withdrawals and everyday actions.</div>
 <label for="auth2">Confirm daily-use password</label><input id="auth2" type="password" autocomplete="new-password">
-<label for="fallback">Recovery password</label><input id="fallback" type="password" autocomplete="new-password" minlength="8"><div class="hint">Minimum 8 characters. Store it separately; it freezes and recovers your vault.</div>
+<label for="fallback">Recovery password</label><input id="fallback" type="password" autocomplete="new-password" minlength="16"><div class="hint">Must be different. Store it separately; it freezes and recovers your vault.</div>
 <label for="fallback2">Confirm recovery password</label><input id="fallback2" type="password" autocomplete="new-password">
 <div class="warning">A plain USB signs through this computer. Only configure it on a computer you trust.</div>
 <div class="actions"><button id="create">Create encrypted keys</button><button id="refresh" class="secondary">Refresh drives</button></div></div>

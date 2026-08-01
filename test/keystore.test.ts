@@ -218,11 +218,12 @@ describe("keystore", () => {
     }
   });
 
-  it("accepts shorter passwords but rejects fewer than eight characters and identical legacy passwords", async () => {
+  it("rejects passwords under sixteen characters and identical legacy passwords", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "vorka-"));
     try {
-      await expect(generateKeystores(dir, "short", FALLBACK_PASSWORD)).rejects.toThrow(/8 characters/);
-      await expect(generateKeystores(dir, "smallPwd", FALLBACK_PASSWORD)).resolves.toBeTruthy();
+      await expect(generateKeystores(dir, "short", FALLBACK_PASSWORD)).rejects.toThrow(/16 characters/);
+      await expect(generateKeystores(dir, "fifteen-chars-1", FALLBACK_PASSWORD)).rejects.toThrow(/16 characters/);
+      await expect(generateKeystores(dir, AUTH_PASSWORD, FALLBACK_PASSWORD)).resolves.toBeTruthy();
       await rm(dir, { recursive: true, force: true });
       await expect(generateKeystores(dir, AUTH_PASSWORD, AUTH_PASSWORD)).rejects.toThrow(/must differ/);
     } finally {

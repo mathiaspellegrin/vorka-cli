@@ -102,9 +102,21 @@ function hashKeystore(json: string): string {
   return keccak256(toUtf8Bytes(json));
 }
 
+// Length, not composition rules: NIST SP 800-63B explicitly rejects mandatory
+// uppercase/symbol requirements because they push users toward predictable
+// patterns ("Password1!") that cracking dictionaries target first, without
+// meaningfully raising real entropy. The keystore file is deliberately
+// copyable/exportable (see docs/VORKA.md), so an offline dictionary attack
+// against a leaked file - not just a stolen device - is the actual threat a
+// weak password fails against; scrypt's per-guess cost only multiplies the
+// cost of each attempt, it doesn't help if the password is common enough to
+// be found in the first few thousand guesses. 16 chars matches what a
+// generated/pasted password already costs nothing to use (password managers,
+// the in-app "Suggest" button) while pricing out dictionary attacks for
+// anyone typing their own.
 export function validatePassword(password: string, role: "auth" | "fallback"): void {
-  if (Array.from(password).length < 8) {
-    throw new Error(`${role} password must contain at least 8 characters`);
+  if (Array.from(password).length < 16) {
+    throw new Error(`${role} password must contain at least 16 characters`);
   }
 }
 
