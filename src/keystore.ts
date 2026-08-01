@@ -66,7 +66,7 @@ export async function assertSafeVorkaDataDirectory(dir: string, create = false):
   return resolved;
 }
 
-async function allowWindowsWrite(target: string): Promise<void> {
+export async function allowWindowsWrite(target: string): Promise<void> {
   if (process.platform === "win32") await execFileAsync("attrib", ["-R", target]);
 }
 

@@ -19,6 +19,7 @@ import {
   resumeInterruptedSplitGeneration,
   resumeInterruptedReplacement,
   restoreKeystoreBackup,
+  allowWindowsWrite,
 } from "../src/keystore.js";
 
 const AUTH_PASSWORD = "cobalt river lantern meadow 47";
@@ -75,9 +76,16 @@ describe("keystore", () => {
         readFile(path.join(recoveryData, FALLBACK_KEYSTORE_FILENAME), "utf8"),
         readFile(path.join(primaryData, ADDRESS_MANIFEST_FILENAME), "utf8"),
       ]);
+      const primaryAuthPath = path.join(primaryData, AUTH_KEYSTORE_FILENAME);
+      const primaryManifestPath = path.join(primaryData, ADDRESS_MANIFEST_FILENAME);
+      const recoveryFallbackPath = path.join(recoveryData, FALLBACK_KEYSTORE_FILENAME);
+      const recoveryManifestPath = path.join(recoveryData, ADDRESS_MANIFEST_FILENAME);
+      // protectVorkaDevice() already marked these files read-only on Windows; clear
+      // them before simulating the pre-resume state the test needs to recreate.
+      await Promise.all([primaryAuthPath, primaryManifestPath, recoveryFallbackPath, recoveryManifestPath].map(allowWindowsWrite));
       await Promise.all([
-        rm(path.join(primaryData, AUTH_KEYSTORE_FILENAME)), rm(path.join(primaryData, ADDRESS_MANIFEST_FILENAME)),
-        rm(path.join(recoveryData, FALLBACK_KEYSTORE_FILENAME)), rm(path.join(recoveryData, ADDRESS_MANIFEST_FILENAME)),
+        rm(primaryAuthPath), rm(primaryManifestPath),
+        rm(recoveryFallbackPath), rm(recoveryManifestPath),
       ]);
       const operation = `.operation-split-${original.generationId.slice(2)}`;
       const primaryStage = path.join(primaryData, operation), recoveryStage = path.join(recoveryData, operation);
@@ -136,10 +144,16 @@ describe("keystore", () => {
         readFile(path.join(replacementData, AUTH_KEYSTORE_FILENAME), "utf8"),
         readFile(path.join(replacementData, ADDRESS_MANIFEST_FILENAME), "utf8"),
       ]);
+      const recoveryManifestPath = path.join(recoveryData, ADDRESS_MANIFEST_FILENAME);
+      const replacementAuthPath = path.join(replacementData, AUTH_KEYSTORE_FILENAME);
+      const replacementManifestPath = path.join(replacementData, ADDRESS_MANIFEST_FILENAME);
+      // protectVorkaDevice() already marked these files read-only on Windows; clear
+      // them before simulating the pre-rotation state the test needs to recreate.
+      await Promise.all([recoveryManifestPath, replacementAuthPath, replacementManifestPath].map(allowWindowsWrite));
       await Promise.all([
-        rm(path.join(replacementData, AUTH_KEYSTORE_FILENAME)),
-        rm(path.join(replacementData, ADDRESS_MANIFEST_FILENAME)),
-        writeFile(path.join(recoveryData, ADDRESS_MANIFEST_FILENAME), oldRecoveryManifest),
+        rm(replacementAuthPath),
+        rm(replacementManifestPath),
+        writeFile(recoveryManifestPath, oldRecoveryManifest),
       ]);
       const operation = `.operation-replacement-${rotated.generationId.slice(2)}`;
       const authStage = path.join(replacementData, operation), fallbackStage = path.join(recoveryData, operation);
