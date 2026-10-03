@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Fluxpad/vorka-cli"
+    "url": "https://github.com/mathiaspellegrin/vorka-cli"
   },
   "type": "module",
   "main": ".native-build/native-main.cjs",

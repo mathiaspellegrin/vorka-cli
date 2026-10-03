@@ -7,7 +7,7 @@ matter as much as bugs in the contracts.
 
 Not audited by a third party yet. An AI-assisted review covered the keystore
 handling and signing code, and its findings were fixed. The review is in
-[vorka-contracts](https://github.com/Fluxpad/vorka-contracts/blob/master/docs/CODEX_SECURITY_REVIEW.md).
+[vorka-contracts](https://github.com/mathiaspellegrin/vorka-contracts/blob/master/docs/CODEX_SECURITY_REVIEW.md).
 
 ## Reporting a vulnerability
 
@@ -25,4 +25,4 @@ what you found, where, and how to reproduce it. I'll reply within 72 hours.
 
 What it can't fix: a computer that's already compromised at the moment you
 sign. More on this in the
-[design notes](https://github.com/Fluxpad/vorka-contracts/blob/master/docs/DESIGN.md).
+[design notes](https://github.com/mathiaspellegrin/vorka-contracts/blob/master/docs/DESIGN.md).

@@ -3,7 +3,7 @@
 The desktop app and CLI for [Vorka](https://www.vorka.net). It creates your
 keys, encrypts them onto two USB drives, and signs and sends transactions for
 your vault. The contracts it talks to are in
-[vorka-contracts](https://github.com/Fluxpad/vorka-contracts).
+[vorka-contracts](https://github.com/mathiaspellegrin/vorka-contracts).
 
 > **Not audited.** See [SECURITY.md](SECURITY.md) before using it with real
 > funds.
@@ -19,7 +19,7 @@ your vault. The contracts it talks to are in
   are stored locally.
 
 Why it's built this way is explained in the
-[design notes](https://github.com/Fluxpad/vorka-contracts/blob/master/docs/DESIGN.md).
+[design notes](https://github.com/mathiaspellegrin/vorka-contracts/blob/master/docs/DESIGN.md).
 
 ## Setup
 
