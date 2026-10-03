@@ -10,7 +10,7 @@ export interface ReviewResult {
  * Decodes `data` against the action's own ABI fragment into a plain-language
  * summary, and flags any uint256 argument set to the max value — the classic
  * unlimited-approval pattern drainer scams rely on. Heuristic, not a full
- * transaction simulation (see docs/VORKA.md — that's a documented fast-follow).
+ * transaction simulation (planned as a follow-up).
  */
 export function reviewActionCall(action: RegistryAction, data: string): ReviewResult {
   const iface = new Interface(action.abi);

@@ -1,14 +1,25 @@
 # vorka-cli
 
-The customer-facing companion app: keystore generation, EIP-712 signing, and
-broadcasting for `VorkaVault`. This is what ships on a sold drive — see
-`docs/VORKA.md` in the [`vorka-docs`](https://github.com/Fluxpad/vorka-docs) repo for
-the full design (key custody model, why `execute()` has no allowlist, the
-curated action registry, etc.).
+The desktop app and CLI for [Vorka](https://www.vorka.net). It creates your
+keys, encrypts them onto two USB drives, and signs and sends transactions for
+your vault. The contracts it talks to are in
+[vorka-contracts](https://github.com/Fluxpad/vorka-contracts).
 
-Split out of the `vorka` monorepo. [`vorka-provisioning`](https://github.com/Fluxpad/vorka-provisioning)
-depends on this package's build output via a pinned git dependency to flash
-drives before sale — build and tag this one first when cutting a release.
+> **Not audited.** See [SECURITY.md](SECURITY.md) before using it with real
+> funds.
+
+## How it works
+
+- Two USB drives. The primary drive holds only the everyday key. The recovery
+  drive holds only the fallback key and stays unplugged.
+- Keys are standard encrypted keystores (scrypt and AES, the same format as
+  ethers and geth). They're only decrypted in memory, for one signature.
+- No password is cached. You type it each time.
+- No backend is required. RPC URL, chain ID, vault address and factory address
+  are stored locally.
+
+Why it's built this way is explained in the
+[design notes](https://github.com/Fluxpad/vorka-contracts/blob/master/docs/DESIGN.md).
 
 ## Setup
 
@@ -17,23 +28,19 @@ npm install
 npm run build
 ```
 
-## Commands
+## Desktop app
 
-For customers, launch `VORKA.exe` from either USB. The Windows-first client
-opens in its own native Electron window—no browser, localhost server, Node.js
-installation, or browser extension is involved. It detects the provisioned
-drives and creates a split signed bundle: the primary USB receives only the
-operational keystore and the recovery USB receives only the fallback keystore.
-The app also provides local RPC settings, Vault creation/state, native
-withdrawal to the beneficiary, emergency freeze, and primary-device recovery.
-macOS comes next and Linux later.
+On a provisioned drive, customers launch `VORKA.exe`. It opens a native
+Electron window (no browser, local server or Node.js install needed), detects
+the two drives and walks through setup. It can create the vault, show its
+state, withdraw to the owner, freeze the vault and recover the primary key.
 
-Vorka Core does not require a Vorka backend. In this local-only build, the
-primary or recovery signer also pays transaction gas, so the corresponding
-address must hold enough native currency. RPC URL, chain ID, Vault address and
-factory address are saved only in the local Electron profile.
+Windows comes first, macOS next, Linux later.
 
-The CLI remains the open-source/manual interface:
+In this local-only build, the signing key also pays gas, so its address needs
+some native currency.
+
+## CLI
 
 ```
 node dist/cli.js generate                                    # create your own keys
@@ -47,34 +54,31 @@ node dist/cli.js rotate-auth <vaultAddress> <newAuthAddress>
 node dist/cli.js rotate-fallback <vaultAddress> <newFallbackAddress>
 ```
 
-`VORKA_BROADCASTER_KEY` must be set to a funded account's private key before
-any command that broadcasts a transaction — it only pays gas on the active
-chain (`--chain`, default `conflux-mainnet` — see `src/chain.ts`'s `CHAINS`),
-it's never the vault's `authAddress`/`fallbackAddress`.
+Commands that send a transaction need `VORKA_BROADCASTER_KEY`, set to the
+private key of a funded account. That account only pays gas on the selected
+chain (`--chain`, default `conflux-mainnet`, see `src/chain.ts`). It is never
+the vault's operational or fallback key.
 
 ## Tests
 
 ```
 npm test
-npm run build:portable
 ```
 
-`npm run package:windows` builds the native Electron client as a portable
-Windows executable in `release/`. `build:portable` remains temporarily available
-for the old SEA setup while the migration is being completed.
+`test/domain.test.ts` matters most. It checks that this app's EIP-712 encoding
+matches exactly what the contracts verify on-chain. If it fails after a
+contract change, fix `src/domain.ts` first.
 
-The workflow `.github/workflows/build.yml` now builds Windows only. When the
-Authenticode certificate secrets are configured it signs and verifies the
-portable executable before upload.
+## Building the Windows app
 
-`test/domain.test.ts` is the one that matters most: it cross-checks this
-package's EIP-712 encoding against the exact formula `VorkaVaultBase`/`VorkaVault`
-use on-chain. If it fails after a contract change, the typehashes have drifted
-out of sync — fix `src/domain.ts` before anything else.
+```
+npm run package:windows
+```
 
-## End-to-end smoke test
+This builds a portable Windows executable in `release/`. The GitHub workflow in
+`.github/workflows/build.yml` builds it on Windows and signs it when the code
+signing certificate is configured.
 
-Moved to the [`vorka-docs`](https://github.com/Fluxpad/vorka-docs) hub repo's
-`scripts/e2e-smoke.sh` — it needs both `vorka-contracts` (for `forge`) and
-this repo cloned as sibling directories, so it can't live inside either
-one alone.
+## License
+
+[MIT](LICENSE)

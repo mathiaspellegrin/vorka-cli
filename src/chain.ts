@@ -8,9 +8,8 @@ export interface ChainConfig {
 /**
  * Named chains the CLI can target. Vorka launches on Conflux; each
  * additional chain is expected to arrive through a direct partnership with
- * a project on that chain, not generic multi-chain support — see
- * docs/VORKA.md, "Multi-chain and partnerships". Adding one is just a new
- * entry here.
+ * a project on that chain, not generic multi-chain support. Adding one is
+ * just a new entry here.
  */
 export const CHAINS: Record<string, ChainConfig> = {
   "conflux-mainnet": { rpc: "https://evm.confluxrpc.com", chainId: 1030 },
@@ -53,7 +52,7 @@ export interface VaultState {
   owner: string;
   fallbackAddress: string;
   authAddress: string;
-  /** Consumed by withdraw/execute. Independent from governanceNonce — see docs/VORKA.md. */
+  /** Consumed by withdraw/execute. Independent from governanceNonce — see vorka-contracts docs/DESIGN.md. */
   operationalNonce: bigint;
   /** Consumed by modifyIdentity/modifyGovernance. Independent from operationalNonce. */
   governanceNonce: bigint;
@@ -118,7 +117,7 @@ export async function getVaultState(provider: JsonRpcProvider, vaultAddress: str
 
 /**
  * `broadcaster` pays Conflux gas for every function below — it is a separate,
- * low-stakes account from `authAddress`/`fallbackAddress` (see docs/VORKA.md).
+ * low-stakes account from `authAddress`/`fallbackAddress` (see vorka-contracts docs/DESIGN.md).
  * It must already be connected to a provider (`new Wallet(key, provider)`).
  */
 export async function createVault(

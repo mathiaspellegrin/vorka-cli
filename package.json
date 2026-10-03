@@ -2,6 +2,11 @@
   "name": "vorka-cli",
   "version": "0.1.0",
   "description": "Vorka companion CLI: keystore generation, EIP-712 signing, and broadcasting for VorkaVault.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fluxpad/vorka-cli"
+  },
   "type": "module",
   "main": ".native-build/native-main.cjs",
   "bin": {
@@ -36,11 +41,18 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true
     },
-    "files": [".native-build/**/*", "package.json"],
-    "directories": { "output": "release" },
+    "files": [
+      ".native-build/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
     "win": {
       "icon": "assets/vorka.ico",
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "artifactName": "VORKA.${ext}"
     },
     "portable": {

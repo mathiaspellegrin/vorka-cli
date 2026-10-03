@@ -106,7 +106,7 @@ function hashKeystore(json: string): string {
 // uppercase/symbol requirements because they push users toward predictable
 // patterns ("Password1!") that cracking dictionaries target first, without
 // meaningfully raising real entropy. The keystore file is deliberately
-// copyable/exportable (see docs/VORKA.md), so an offline dictionary attack
+// copyable/exportable (see vorka-contracts docs/DESIGN.md), so an offline dictionary attack
 // against a leaked file - not just a stolen device - is the actual threat a
 // weak password fails against; scrypt's per-guess cost only multiplies the
 // cost of each attempt, it doesn't help if the password is common enough to
